@@ -35,7 +35,7 @@ func StartProxy(c *gin.Context) {
 	c.ShouldBindJSON(&req)
 
 	if err := services.ProxyInstance.Start(req.Target); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -76,7 +76,7 @@ func SendProxyRequest(c *gin.Context) {
 	if req.URL != "" {
 		// P1-3：SSRF 防护，禁止将请求转发至内网/私网地址
 		if err := middleware.ValidateURL(req.URL); err != nil {
-			c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "目标地址不合法或位于内网，已拒绝: " + err.Error()})
+			respondError(c, http.StatusBadRequest, err, "目标地址不合法或位于内网,已拒绝")
 			return
 		}
 		result := services.ProxyInstance.SendHTTPRequestSafe(req.Method, req.URL, req.Headers, req.Params, req.Request, req.Timeout)
@@ -87,14 +87,14 @@ func SendProxyRequest(c *gin.Context) {
 	// gRPC 分支：沿用原协议录制逻辑
 	// P1-3：SSRF 防护，禁止将请求转发至内网/私网地址
 	if err := validateProxyTarget(req.Target); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "目标地址不合法或位于内网，已拒绝: " + err.Error()})
+		respondError(c, http.StatusBadRequest, err, "目标地址不合法或位于内网,已拒绝")
 		return
 	}
 
 	headersJSON, _ := json.Marshal(req.Headers)
 	resp, err := services.ProxyInstance.SendRequest(req.Method, req.Request, string(headersJSON), req.Target, req.Timeout)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -115,13 +115,13 @@ func ReplayProxy(c *gin.Context) {
 
 	// P1-3：SSRF 防护，禁止将请求转发至内网/私网地址
 	if err := validateProxyTarget(req.Target); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "目标地址不合法或位于内网，已拒绝: " + err.Error()})
+		respondError(c, http.StatusBadRequest, err, "目标地址不合法或位于内网,已拒绝")
 		return
 	}
 
 	resp, err := services.ProxyInstance.ReplayFrame(req.Target, req.Method, req.RawFrameBase64)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 

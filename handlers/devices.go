@@ -23,7 +23,7 @@ func GetDevices(c *gin.Context) {
 func ScanDevices(c *gin.Context) {
 	devices, err := services.ADB.Scan()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: devices})
@@ -34,7 +34,7 @@ func GetDevice(c *gin.Context) {
 	serial := c.Param("serial")
 	device, err := services.ADB.GetDevice(serial)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusNotFound, err, "未找到请求的资源")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: device})
@@ -45,7 +45,7 @@ func TakeScreenshot(c *gin.Context) {
 	serial := c.Param("serial")
 	imgBytes, err := services.ADB.TakeScreenshot(serial)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -70,7 +70,7 @@ func ExecDeviceCommand(c *gin.Context) {
 
 	output, err := services.ADB.ExecCommand(serial, req.Command)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -118,7 +118,7 @@ func InstallAPK(c *gin.Context) {
 
 	output, err := services.ADB.InstallAPK(serial, apkPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 

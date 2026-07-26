@@ -16,7 +16,7 @@ func GetAPIRequests(c *gin.Context) {
 		"SELECT id, name, method, url, headers, params, body, description, tags, folder_id, created_at, updated_at FROM api_requests ORDER BY updated_at DESC LIMIT 200",
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -24,7 +24,7 @@ func GetAPIRequests(c *gin.Context) {
 	for rows.Next() {
 		var r models.APIRequest
 		if err := rows.Scan(&r.ID, &r.Name, &r.Method, &r.URL, &r.Headers, &r.Params, &r.Body, &r.Description, &r.Tags, &r.FolderID, &r.CreatedAt, &r.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		reqs = append(reqs, r)
@@ -59,7 +59,7 @@ func CreateAPIRequest(c *gin.Context) {
 		r.ID, r.Name, r.Method, r.URL, r.Headers, r.Params, r.Body, r.Description, r.Tags, r.FolderID, r.CreatedAt, r.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: r})
@@ -78,7 +78,7 @@ func UpdateAPIRequest(c *gin.Context) {
 		r.Name, r.Method, r.URL, r.Headers, r.Params, r.Body, r.Description, r.Tags, r.FolderID, r.UpdatedAt, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	r.ID = id
@@ -89,7 +89,7 @@ func DeleteAPIRequest(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM api_requests WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -100,7 +100,7 @@ func DeleteAPIRequest(c *gin.Context) {
 func GetAPIFolders(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT id, name, parent_id, sort_order, created_at FROM api_folders ORDER BY sort_order")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -108,7 +108,7 @@ func GetAPIFolders(c *gin.Context) {
 	for rows.Next() {
 		var f models.APIFolder
 		if err := rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.SortOrder, &f.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		folders = append(folders, f)
@@ -127,7 +127,7 @@ func CreateAPIFolder(c *gin.Context) {
 	_, err := database.DB.Exec("INSERT INTO api_folders (id, name, parent_id, sort_order, created_at) VALUES (?,?,?,?,?)",
 		f.ID, f.Name, f.ParentID, f.SortOrder, f.CreatedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: f})
@@ -142,7 +142,7 @@ func UpdateAPIFolder(c *gin.Context) {
 	}
 	_, err := database.DB.Exec("UPDATE api_folders SET name=?, parent_id=?, sort_order=? WHERE id=?", f.Name, f.ParentID, f.SortOrder, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	f.ID = id
@@ -153,7 +153,7 @@ func DeleteAPIFolder(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM api_folders WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -166,7 +166,7 @@ func GetAPIHistory(c *gin.Context) {
 		"SELECT id, request_id, method, url, response, status_code, duration, created_at FROM api_history ORDER BY created_at DESC LIMIT 100",
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -174,7 +174,7 @@ func GetAPIHistory(c *gin.Context) {
 	for rows.Next() {
 		var h models.APIHistory
 		if err := rows.Scan(&h.ID, &h.RequestID, &h.Method, &h.URL, &h.Response, &h.StatusCode, &h.Duration, &h.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		hist = append(hist, h)
@@ -195,7 +195,7 @@ func CreateAPIHistory(c *gin.Context) {
 		h.ID, h.RequestID, h.Method, h.URL, h.Response, h.StatusCode, h.Duration, h.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: h})
@@ -204,7 +204,7 @@ func CreateAPIHistory(c *gin.Context) {
 func ClearAPIHistory(c *gin.Context) {
 	_, err := database.DB.Exec("DELETE FROM api_history")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})

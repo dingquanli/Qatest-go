@@ -24,7 +24,7 @@ func GetBugs(c *gin.Context) {
 		 FROM bugs ORDER BY updated_at DESC LIMIT 200`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -35,13 +35,13 @@ func GetBugs(c *gin.Context) {
 		if err := rows.Scan(&b.ID, &b.Title, &b.Severity, &b.Priority, &b.Status, &b.Assignee, &b.Reporter,
 			&b.Module, &b.Env, &b.Description, &b.Steps, &b.Expected, &b.Actual, &b.Tags,
 			&b.RelatedCaseID, &b.ExternalID, &b.ExternalURL, &b.CreatedAt, &b.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		bugs = append(bugs, b)
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -54,7 +54,7 @@ func GetBugStats(c *gin.Context) {
 		`SELECT status, COUNT(*) as cnt FROM bugs GROUP BY status`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -64,7 +64,7 @@ func GetBugStats(c *gin.Context) {
 		var status string
 		var cnt int
 		if err := rows.Scan(&status, &cnt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		stats[status] = cnt
@@ -114,7 +114,7 @@ func CreateBug(c *gin.Context) {
 		b.RelatedCaseID, b.ExternalID, b.ExternalURL, b.CreatedAt, b.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -140,7 +140,7 @@ func UpdateBug(c *gin.Context) {
 		b.RelatedCaseID, b.ExternalID, b.ExternalURL, b.UpdatedAt, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -153,7 +153,7 @@ func DeleteBug(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM bugs WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -349,7 +349,7 @@ func SyncBugToJira(c *gin.Context) {
 		"UPDATE bugs SET external_id=?, external_url=?, updated_at=? WHERE id=?",
 		jr.Key, externalURL, models.NowStr(), bugID,
 	); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: "回写外部链接失败: " + err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "回写外部链接失败")
 		return
 	}
 

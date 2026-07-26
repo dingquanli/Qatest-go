@@ -169,7 +169,7 @@ func ReceiveReport(c *gin.Context) {
 		ElapsedMs float64        `json:"elapsed_ms"`
 	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误: " + err.Error()})
+		respondError(c, http.StatusBadRequest, err, "请求参数错误")
 		return
 	}
 
@@ -256,7 +256,7 @@ func ReceiveReport(c *gin.Context) {
 		payload.Seq, strings.TrimSpace(payload.Method), headersStr, reqStr, respStr, errStr, payload.ElapsedMs, payload.Ts,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: "写入上报数据失败: " + err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "写入上报数据失败")
 		return
 	}
 
@@ -398,7 +398,7 @@ func GetQaReports(c *gin.Context) {
 
 	var total int
 	if err := database.DB.QueryRow("SELECT COUNT(*) FROM qa_reports "+where, args...).Scan(&total); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -411,7 +411,7 @@ func GetQaReports(c *gin.Context) {
 		queryArgs...,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -444,7 +444,7 @@ func GetQaReports(c *gin.Context) {
 			&r.ID, &r.Event, &r.Name, &r.Result, &r.Message, &r.Tags, &r.Token, &r.Source, &r.Timestamp, &r.CreatedAt,
 			&r.Seq, &r.Method, &r.Headers, &r.ReqBody, &r.RespBody, &r.ErrMsg, &r.ElapsedMs, &r.Ts,
 		); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		list = append(list, r)

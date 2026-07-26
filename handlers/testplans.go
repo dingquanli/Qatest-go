@@ -236,7 +236,7 @@ func ExecuteTestPlan(c *gin.Context) {
 		DeviceSerial string `json:"deviceSerial"` // auto 模式使用的设备序列号
 		Executor     string `json:"executor"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误: " + err.Error()}); return }
+	if err := c.ShouldBindJSON(&req); err != nil { respondError(c, http.StatusBadRequest, err, "请求参数错误"); return }
 	mode := req.Mode
 	if mode != "auto" {
 		mode = "manual"

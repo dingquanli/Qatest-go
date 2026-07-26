@@ -45,7 +45,7 @@ func SetProtoDir(c *gin.Context) {
 	}
 
 	if err := services.ProtoLoader.SetDir(req.Dir); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -64,7 +64,7 @@ func DescribeProtoMethod(c *gin.Context) {
 
 	desc, err := services.ProtoLoader.DescribeMethod(req.Method)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusNotFound, err, "未找到请求的资源")
 		return
 	}
 

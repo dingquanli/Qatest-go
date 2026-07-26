@@ -15,7 +15,7 @@ import (
 func GetScripts(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT id, name, description, language, code, created_at, updated_at FROM scripts ORDER BY updated_at DESC LIMIT 500")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -24,13 +24,13 @@ func GetScripts(c *gin.Context) {
 	for rows.Next() {
 		var s models.Script
 		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.Language, &s.Code, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		scripts = append(scripts, s)
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -71,7 +71,7 @@ func CreateScript(c *gin.Context) {
 		s.ID, s.Name, s.Description, s.Language, s.Code, s.CreatedAt, s.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -94,7 +94,7 @@ func UpdateScript(c *gin.Context) {
 		s.Name, s.Description, s.Language, s.Code, s.UpdatedAt, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -107,7 +107,7 @@ func DeleteScript(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM scripts WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})

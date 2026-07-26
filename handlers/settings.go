@@ -33,7 +33,7 @@ func requireAdmin(c *gin.Context) bool {
 func GetSettings(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT key, value FROM settings ORDER BY key")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -42,7 +42,7 @@ func GetSettings(c *gin.Context) {
 	for rows.Next() {
 		var k, v string
 		if err := rows.Scan(&k, &v); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		if isSecretSettingKey(k) {
@@ -73,7 +73,7 @@ func UpdateSettings(c *gin.Context) {
 			continue
 		}
 		if _, err := database.DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?", k, v, v); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 	}
@@ -120,7 +120,7 @@ func UpdateSetting(c *gin.Context) {
 
 	_, err := database.DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?", key, req.Value, req.Value)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: gin.H{"key": key, "value": req.Value}})

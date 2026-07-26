@@ -16,7 +16,7 @@ func GetAPIDefinitions(c *gin.Context) {
 		"SELECT id, name, method, url, tags, module_id, headers, body, created_at, updated_at FROM api_definitions ORDER BY updated_at DESC LIMIT 200",
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -24,7 +24,7 @@ func GetAPIDefinitions(c *gin.Context) {
 	for rows.Next() {
 		var d models.APIDefinition
 		if err := rows.Scan(&d.ID, &d.Name, &d.Method, &d.URL, &d.Tags, &d.ModuleID, &d.Headers, &d.Body, &d.CreatedAt, &d.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		defs = append(defs, d)
@@ -59,7 +59,7 @@ func CreateAPIDefinition(c *gin.Context) {
 		d.ID, d.Name, d.Method, d.URL, d.Tags, d.ModuleID, d.Headers, d.Body, d.CreatedAt, d.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: d})
@@ -78,7 +78,7 @@ func UpdateAPIDefinition(c *gin.Context) {
 		d.Name, d.Method, d.URL, d.Tags, d.ModuleID, d.Headers, d.Body, d.UpdatedAt, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	d.ID = id
@@ -89,7 +89,7 @@ func DeleteAPIDefinition(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM api_definitions WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -100,7 +100,7 @@ func DeleteAPIDefinition(c *gin.Context) {
 func GetAPIDefModules(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT id, name, parent_id, sort_order, created_at FROM api_def_modules ORDER BY sort_order")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -108,7 +108,7 @@ func GetAPIDefModules(c *gin.Context) {
 	for rows.Next() {
 		var m models.APIDefModule
 		if err := rows.Scan(&m.ID, &m.Name, &m.ParentID, &m.SortOrder, &m.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		mods = append(mods, m)
@@ -127,7 +127,7 @@ func CreateAPIDefModule(c *gin.Context) {
 	_, err := database.DB.Exec("INSERT INTO api_def_modules (id, name, parent_id, sort_order, created_at) VALUES (?,?,?,?,?)",
 		m.ID, m.Name, m.ParentID, m.SortOrder, m.CreatedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: m})
@@ -142,7 +142,7 @@ func UpdateAPIDefModule(c *gin.Context) {
 	}
 	_, err := database.DB.Exec("UPDATE api_def_modules SET name=?, parent_id=?, sort_order=? WHERE id=?", m.Name, m.ParentID, m.SortOrder, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	m.ID = id
@@ -153,7 +153,7 @@ func DeleteAPIDefModule(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM api_def_modules WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})

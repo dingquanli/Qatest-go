@@ -19,7 +19,7 @@ func GetExecutions(c *gin.Context) {
 		 FROM executions ORDER BY started_at DESC LIMIT 100`,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -33,13 +33,13 @@ func GetExecutions(c *gin.Context) {
 			&e.ID, &e.ScriptID, &e.DeviceSerial, &e.TaskName, &e.Status, &e.Logs,
 			&e.Screenshots, &e.Duration, &e.StartedAt, &e.FinishedAt, &e.CreatedAt,
 		); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		executions = append(executions, e)
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -104,7 +104,7 @@ func CreateExecution(c *gin.Context) {
 		exec.Screenshots, exec.Duration, exec.StartedAt, exec.FinishedAt, exec.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 
@@ -146,7 +146,7 @@ func CancelExecution(c *gin.Context) {
 
 	now := time.Now().Format(time.RFC3339)
 	if _, err := database.DB.Exec("UPDATE executions SET status='cancelled', finished_at=? WHERE id=?", now, id); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 

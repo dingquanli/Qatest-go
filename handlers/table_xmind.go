@@ -16,7 +16,7 @@ func GetTableCases(c *gin.Context) {
 		"SELECT id, name, module_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at FROM table_cases ORDER BY sort_order LIMIT 500",
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -24,7 +24,7 @@ func GetTableCases(c *gin.Context) {
 	for rows.Next() {
 		var e models.TableCase
 		if err := rows.Scan(&e.ID, &e.Name, &e.ModuleID, &e.Priority, &e.Type, &e.Precondition, &e.Steps, &e.Expected, &e.Assignee, &e.Status, &e.Tags, &e.SortOrder, &e.CreatedAt, &e.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		cases = append(cases, e)
@@ -55,7 +55,7 @@ func CreateTableCase(c *gin.Context) {
 		e.ID, e.Name, e.ModuleID, e.Priority, e.Type, e.Precondition, e.Steps, e.Expected, e.Assignee, e.Status, e.Tags, e.SortOrder, e.CreatedAt, e.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: e})
@@ -83,7 +83,7 @@ func UpdateTableCase(c *gin.Context) {
 		e.Name, e.ModuleID, e.Priority, e.Type, e.Precondition, e.Steps, e.Expected, e.Assignee, e.Status, e.Tags, e.SortOrder, e.UpdatedAt, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	e.ID = id
@@ -94,7 +94,7 @@ func DeleteTableCase(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM table_cases WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -105,7 +105,7 @@ func DeleteTableCase(c *gin.Context) {
 func GetTableModules(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT id, name, parent_id, sort_order, created_at FROM table_modules ORDER BY sort_order")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -113,7 +113,7 @@ func GetTableModules(c *gin.Context) {
 	for rows.Next() {
 		var m models.TableModule
 		if err := rows.Scan(&m.ID, &m.Name, &m.ParentID, &m.SortOrder, &m.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		mods = append(mods, m)
@@ -132,7 +132,7 @@ func CreateTableModule(c *gin.Context) {
 	_, err := database.DB.Exec("INSERT INTO table_modules (id, name, parent_id, sort_order, created_at) VALUES (?,?,?,?,?)",
 		m.ID, m.Name, m.ParentID, m.SortOrder, m.CreatedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: m})
@@ -147,7 +147,7 @@ func UpdateTableModule(c *gin.Context) {
 	}
 	_, err := database.DB.Exec("UPDATE table_modules SET name=?, parent_id=?, sort_order=? WHERE id=?", m.Name, m.ParentID, m.SortOrder, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	m.ID = id
@@ -158,7 +158,7 @@ func DeleteTableModule(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM table_modules WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -171,7 +171,7 @@ func GetXmindCases(c *gin.Context) {
 		"SELECT id, name, module_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at FROM xmind_cases ORDER BY sort_order LIMIT 500",
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -179,7 +179,7 @@ func GetXmindCases(c *gin.Context) {
 	for rows.Next() {
 		var x models.XmindCase
 		if err := rows.Scan(&x.ID, &x.Name, &x.ModuleID, &x.Priority, &x.Type, &x.Precondition, &x.Steps, &x.Expected, &x.Assignee, &x.Status, &x.Tags, &x.SortOrder, &x.CreatedAt, &x.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		cases = append(cases, x)
@@ -210,7 +210,7 @@ func CreateXmindCase(c *gin.Context) {
 		x.ID, x.Name, x.ModuleID, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.SortOrder, x.CreatedAt, x.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: x})
@@ -238,7 +238,7 @@ func UpdateXmindCase(c *gin.Context) {
 		x.Name, x.ModuleID, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.SortOrder, x.UpdatedAt, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	x.ID = id
@@ -249,7 +249,7 @@ func DeleteXmindCase(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM xmind_cases WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -260,7 +260,7 @@ func DeleteXmindCase(c *gin.Context) {
 func GetXmindModules(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT id, name, parent_id, sort_order, created_at FROM xmind_modules ORDER BY sort_order")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	defer rows.Close()
@@ -268,7 +268,7 @@ func GetXmindModules(c *gin.Context) {
 	for rows.Next() {
 		var m models.XmindModule
 		if err := rows.Scan(&m.ID, &m.Name, &m.ParentID, &m.SortOrder, &m.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
 		mods = append(mods, m)
@@ -287,7 +287,7 @@ func CreateXmindModule(c *gin.Context) {
 	_, err := database.DB.Exec("INSERT INTO xmind_modules (id, name, parent_id, sort_order, created_at) VALUES (?,?,?,?,?)",
 		m.ID, m.Name, m.ParentID, m.SortOrder, m.CreatedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: m})
@@ -302,7 +302,7 @@ func UpdateXmindModule(c *gin.Context) {
 	}
 	_, err := database.DB.Exec("UPDATE xmind_modules SET name=?, parent_id=?, sort_order=? WHERE id=?", m.Name, m.ParentID, m.SortOrder, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	m.ID = id
@@ -313,11 +313,11 @@ func DeleteXmindModule(c *gin.Context) {
 	id := c.Param("id")
 	// 删除模块前，先把该模块下的用例移至「未分类」(module_id='')，避免用例被级联丢失
 	if _, err := database.DB.Exec("UPDATE xmind_cases SET module_id='' WHERE module_id = ?", id); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	if _, err := database.DB.Exec("DELETE FROM xmind_modules WHERE id = ?", id); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
