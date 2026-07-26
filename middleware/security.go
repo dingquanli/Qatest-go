@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"sync"
@@ -61,9 +62,10 @@ func SSRFCheck() gin.HandlerFunc {
 
 		if urlParam != "" {
 			if err := ValidateURL(urlParam); err != nil {
+				log.Printf("[SSRF] 拦截非法/内网 URL %q: %v", urlParam, err)
 				c.JSON(400, models.APIResponse{
 					Success: false,
-					Error:   err.Error(),
+					Error:   "请求中的 URL 不合法或指向受保护的内网地址，已被安全策略拦截",
 				})
 				c.Abort()
 				return
