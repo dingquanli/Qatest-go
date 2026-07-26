@@ -235,7 +235,7 @@ func ExecuteTestPlan(c *gin.Context) {
 		DeviceSerial string `json:"deviceSerial"` // auto 模式使用的设备序列号
 		Executor     string `json:"executor"`     // 执行人
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误: " + err.Error()}); return }
 	mode := req.Mode
 	if mode != "auto" {
 		mode = "manual"
@@ -271,8 +271,11 @@ func ExecuteTestPlan(c *gin.Context) {
 	caseExecs := make([]models.CaseExecution, 0, len(caseIDs))
 	for _, cid := range caseIDs {
 		var caseName, steps, scriptID string
-		_ = database.DB.QueryRow("SELECT name, steps, script_id FROM test_cases WHERE id = ?", cid).
+		scanErr := database.DB.QueryRow("SELECT name, steps, script_id FROM test_cases WHERE id = ?", cid).
 			Scan(&caseName, &steps, &scriptID)
+		if scanErr != nil {
+			continue
+		}
 
 		ceID := generateID("ce")
 		_, err := database.DB.Exec(

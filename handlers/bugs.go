@@ -336,7 +336,10 @@ func SyncBugToJira(c *gin.Context) {
 		Key  string `json:"key"`
 		Self string `json:"self"`
 	}
-	_ = json.Unmarshal([]byte(res.Body), &jr)
+	if umErr := json.Unmarshal([]byte(res.Body), &jr); umErr != nil {
+		c.JSON(http.StatusBadGateway, models.APIResponse{Success: false, Error: "Jira 响应解析失败: " + umErr.Error()})
+		return
+	}
 
 	externalURL := jr.Self
 	if jr.Key != "" {
