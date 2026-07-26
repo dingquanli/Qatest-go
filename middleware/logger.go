@@ -50,7 +50,6 @@ func Logger() gin.HandlerFunc {
 		path := c.Request.URL.Path
 		query := redactQuery(c.Request.URL.RawQuery)
 
-		// 处理请求
 		c.Next()
 
 		latency := time.Since(start)

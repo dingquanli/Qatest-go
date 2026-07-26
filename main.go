@@ -18,16 +18,13 @@ import (
 )
 
 func main() {
-	// 加载配置
 	config.Load()
 
-	// 初始化数据库
 	if err := database.Init(); err != nil {
 		log.Fatalf("初始化数据库失败: %v", err)
 	}
 	defer database.Close()
 
-	// 执行数据迁移
 	if err := database.RunMigrations(); err != nil {
 		log.Fatalf("数据库迁移失败: %v", err)
 	}
@@ -41,10 +38,8 @@ func main() {
 
 	r := gin.New()
 
-	// 注册路由
 	routes.RegisterRoutes(r)
 
-	// 创建 HTTP 服务器
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%s", config.AppConfig.Port),
 		Handler: r,

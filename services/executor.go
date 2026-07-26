@@ -166,7 +166,6 @@ func killProcessTree(pid int) {
 	}
 }
 
-// GetTask 获取任务
 // execute 执行脚本
 func (em *ExecutorManager) execute(task *ExecutionTask) {
 	// 防止单个任务 panic 拖垮整个进程

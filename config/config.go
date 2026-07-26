@@ -104,7 +104,6 @@ func Load() *Config {
 		},
 	}
 
-	// 解析 JWT 过期时间
 	expiresIn := getEnv("JWT_EXPIRES_IN", "24h")
 	dur, err := time.ParseDuration(expiresIn)
 	if err != nil {
@@ -112,14 +111,12 @@ func Load() *Config {
 	}
 	cfg.JWTExpiresIn = dur
 
-	// 解析 AllowedOrigins
 	origins := getEnv("ALLOWED_ORIGINS", "http://localhost:3000")
 	cfg.AllowedOrigins = strings.Split(origins, ",")
 	for i := range cfg.AllowedOrigins {
 		cfg.AllowedOrigins[i] = strings.TrimSpace(cfg.AllowedOrigins[i])
 	}
 
-	// 解析用户列表
 	if usersJSON := os.Getenv("QATEST_USERS"); usersJSON != "" {
 		var users []UserConfig
 		if err := json.Unmarshal([]byte(usersJSON), &users); err == nil {

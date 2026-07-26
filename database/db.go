@@ -41,12 +41,10 @@ func Init() error {
 	DB.SetMaxIdleConns(2)
 	DB.SetConnMaxLifetime(0) // 长连接复用
 
-	// 验证连接
 	if err := DB.Ping(); err != nil {
 		return fmt.Errorf("数据库连接失败: %w", err)
 	}
 
-	// 执行 WAL 模式
 	if _, err := DB.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return fmt.Errorf("开启WAL模式失败: %w", err)
 	}
@@ -54,7 +52,6 @@ func Init() error {
 	if _, err := DB.Exec("PRAGMA wal_autocheckpoint=1000"); err != nil {
 		log.Printf("[数据库] 设置 wal_autocheckpoint 失败: %v", err)
 	}
-	// 外键约束
 	if _, err := DB.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		return fmt.Errorf("开启外键约束失败: %w", err)
 	}

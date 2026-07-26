@@ -21,13 +21,11 @@ var authWhitelist = map[string]bool{
 // AuthRequired JWT 认证中间件
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 检查白名单
 		if authWhitelist[c.Request.URL.Path] {
 			c.Next()
 			return
 		}
 
-		// 提取 Token
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			// 也检查 query 参数（WebSocket）
@@ -56,7 +54,6 @@ func AuthRequired() gin.HandlerFunc {
 			return
 		}
 
-		// 解析 Token
 		claims := jwt.MapClaims{}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
 			// P3 加固：强制 HS256 签名算法，拒绝 none / 非对称算法混淆攻击
@@ -75,7 +72,6 @@ func AuthRequired() gin.HandlerFunc {
 			return
 		}
 
-		// 存入上下文
 		if uid, ok := claims["userId"].(string); ok {
 			c.Set("userId", uid)
 		}

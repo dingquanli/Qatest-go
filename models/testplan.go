@@ -38,8 +38,8 @@ type PlanExecution struct {
 	CasesTotal  int    `json:"casesTotal"`
 	CasesPassed int    `json:"casesPassed"`
 	CasesFailed int    `json:"casesFailed"`
-	ExecutedBy  string `json:"executedBy"`          // 执行人
-	FinishedAt  string `json:"finishedAt"`          // 完成时间
+	ExecutedBy  string `json:"executedBy"`
+	FinishedAt  string `json:"finishedAt"`
 	CasesDetail string `json:"casesDetail"`         // JSON: [{caseId,caseName,result,remark}]
 	Duration    int    `json:"duration"`
 	StartedAt   string `json:"startedAt"`

@@ -46,9 +46,8 @@ func SSRFCheck() gin.HandlerFunc {
 			method := c.Request.Method
 			if method == "POST" || method == "PUT" || method == "PATCH" {
 				// P1-5 修复：限制 body 读取大小为 1MB，避免大 payload DoS
-			bodyBytes, _ := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+				bodyBytes, _ := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
 				c.Request.Body.Close()
-				// 重置 body
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 				var body map[string]interface{}
