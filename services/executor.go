@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,6 +52,8 @@ type ExecutionTask struct {
 	LogChan      chan LogEntry
 	Pid          int    // 当前命令的进程 PID，用于进程树终止
 	mu           sync.Mutex
+	logMu        sync.Mutex
+	logClosed    bool
 	OnDone       func(status string) // 任务结束回调（由调用方注入，如计划执行引擎聚合结果）
 }
 
@@ -75,18 +78,26 @@ var Executor = &ExecutorManager{
 type BroadcastFunc func([]byte)
 
 // logBroadcastFn 日志广播回调（由 handlers 包通过 SetLogBroadcastFunc 注册）
-var logBroadcastFn BroadcastFunc
+var (
+	logBroadcastFn BroadcastFunc
+	logBroadcastMu sync.RWMutex
+)
 
 // SetLogBroadcastFunc 注册日志广播函数（由 handlers 包调用）
 // P0-3 修复：services 包不能导入 handlers（循环依赖），通过回调注入
 func SetLogBroadcastFunc(fn BroadcastFunc) {
+	logBroadcastMu.Lock()
+	defer logBroadcastMu.Unlock()
 	logBroadcastFn = fn
 }
 
 // broadcastLog 如果注册了广播函数则调用它
 func broadcastLog(data []byte) {
-	if logBroadcastFn != nil {
-		logBroadcastFn(data)
+	logBroadcastMu.RLock()
+	fn := logBroadcastFn
+	logBroadcastMu.RUnlock()
+	if fn != nil {
+		fn(data)
 	}
 }
 
@@ -158,11 +169,23 @@ func (em *ExecutorManager) Cancel(id string) error {
 	return err
 }
 
-// killProcessTree 终止 Windows 进程树
+// killProcessTree 跨平台终止进程及其直接子进程
 func killProcessTree(pid int) {
-	cmd := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
-	if err := cmd.Run(); err != nil {
-		log.Printf("[执行器] taskkill 失败 (进程可能已退出): %v", err)
+	if pid <= 0 {
+		return
+	}
+	switch runtime.GOOS {
+	case "windows":
+		cmd := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
+		if err := cmd.Run(); err != nil {
+			log.Printf("[执行器] taskkill 失败 (进程可能已退出): %v", err)
+		}
+	default:
+		// Unix-like：先终止直接子进程，再结束主进程
+		_ = exec.Command("pkill", "-P", strconv.Itoa(pid)).Run()
+		if err := exec.Command("kill", "-9", strconv.Itoa(pid)).Run(); err != nil {
+			log.Printf("[执行器] kill 失败 (进程可能已退出): %v", err)
+		}
 	}
 }
 
@@ -185,7 +208,12 @@ func (em *ExecutorManager) execute(task *ExecutionTask) {
 		em.mu.Lock()
 		delete(em.tasks, task.ID)
 		em.mu.Unlock()
-		close(task.LogChan) // consumeLogs goroutine 会在 range 结束后自动退出
+		task.logMu.Lock()
+		if !task.logClosed {
+			task.logClosed = true
+			close(task.LogChan) // consumeLogs goroutine 会在 range 结束后自动退出
+		}
+		task.logMu.Unlock()
 	}()
 
 	// 更新状态为运行中
@@ -398,19 +426,12 @@ func (em *ExecutorManager) executePython(task *ExecutionTask, tmpDir string) {
 		task.mu.Unlock()
 	}
 
-	// 后台清理临时文件
-	go func() {
-		<-ctx.Done()
-		time.Sleep(1 * time.Second)
-		os.Remove(tmpFile)
-	}()
-
 	output, err := cmd.CombinedOutput()
 
-	// 清除 PID
 	task.mu.Lock()
 	task.Pid = 0
 	task.mu.Unlock()
+	os.Remove(tmpFile)
 
 	finishTime := time.Now().Format(time.RFC3339)
 	status := StatusSuccess
@@ -518,19 +539,12 @@ const adb = async (cmd) => {
 		task.mu.Unlock()
 	}
 
-	// 后台清理临时文件
-	go func() {
-		<-ctx.Done()
-		time.Sleep(1 * time.Second)
-		os.Remove(tmpFile)
-	}()
-
 	output, err := cmd.CombinedOutput()
 
-	// 清除 PID
 	task.mu.Lock()
 	task.Pid = 0
 	task.mu.Unlock()
+	os.Remove(tmpFile)
 
 	finishTime := time.Now().Format(time.RFC3339)
 	status := StatusSuccess
@@ -567,6 +581,11 @@ func (task *ExecutionTask) emitLog(level, message string) {
 		Time:    time.Now().Format(time.RFC3339),
 		Level:   level,
 		Message: message,
+	}
+	task.logMu.Lock()
+	defer task.logMu.Unlock()
+	if task.logClosed {
+		return
 	}
 	select {
 	case task.LogChan <- entry:
