@@ -1,0 +1,35 @@
+# 编译产物与可执行文件
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+qatest-go
+Qatest-go
+qatest
+
+# 本地数据库（含 WAL 模式临时文件）
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# 代理日志目录
+ProxyLogs/
+
+# 本地环境文件（忽略真实 .env，保留 .env.example 模板）
+.env
+!.env.example
+
+# 常见忽略项
+/dist
+node_modules/
+
+# 运行日志
+*.log
+
+# 编辑器 / 操作系统
+.DS_Store
+.idea
+.vscode/

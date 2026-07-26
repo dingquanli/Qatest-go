@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  qatest:
+    build: .
+    container_name: qatest-go
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # 数据持久化
+      - qatest-data:/app/data
+      # 日志目录
+      - qatest-logs:/app/logs
+      # Proto 文件（如有）
+      - ./protos:/app/protos:ro
+    environment:
+      - PORT=3000
+      - DB_PATH=/app/data/qatest.db
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required, set it in .env or environment}
+      - JWT_EXPIRES_IN=24h
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PROXY_TARGET=
+      - PROTO_DIR=/app/protos
+      - LOG_DIR=/app/logs
+      - QATEST_USERS=${QATEST_USERS:-[{"username":"admin","passwordHash":"$2b$10$placeholder_hash","name":"管理员","role":"admin"}]}
+      - GIN_MODE=release
+
+volumes:
+  qatest-data:
+  qatest-logs:

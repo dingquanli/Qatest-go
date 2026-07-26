@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 12%;
+    --primary: 210 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 38%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 56%;
+    --accent: 210 60% 96%;
+    --accent-foreground: 210 80% 30%;
+    --destructive: 0 72% 54%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
+    --ring: 210 100% 50%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 92%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 92%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 92%;
+    --primary: 210 100% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 0 0% 72%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 56%;
+    --accent: 210 40% 16%;
+    --accent-foreground: 210 80% 70%;
+    --destructive: 0 62% 44%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
+    --ring: 210 100% 56%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  .card-hover {
+    @apply transition-all duration-200;
+  }
+  .card-hover:hover {
+    @apply shadow-lg -translate-y-0.5;
+  }
+
+  .glass {
+    @apply bg-white/80 dark:bg-gray-950/80 backdrop-blur-xl border-b border-border/50;
+  }
+
+  .sidebar-transition {
+    @apply transition-all duration-300 ease-in-out;
+  }
+
+  .method-get { @apply bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400; }
+  .method-post { @apply bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400; }
+  .method-put { @apply bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400; }
+  .method-delete { @apply bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400; }
+  .method-patch { @apply bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-400; }
+  .method-head { @apply bg-gray-50 text-gray-600 dark:bg-gray-900/40 dark:text-gray-400; }
+  .method-options { @apply bg-gray-50 text-gray-600 dark:bg-gray-900/40 dark:text-gray-400; }
+
+  .json-key { @apply text-blue-600 dark:text-blue-400; }
+  .json-string { @apply text-emerald-600 dark:text-emerald-400; }
+  .json-number { @apply text-amber-600 dark:text-amber-400; }
+  .json-bool { @apply text-violet-600 dark:text-violet-400; }
+  .json-null { @apply text-red-500 dark:text-red-400; }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .pulse-dot {
+    animation: pulseDot 2s ease-in-out infinite;
+  }
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+
+/* ===== Element Plus 暗色协调（兼容仍使用 el-* 的页面） ===== */
+html.dark {
+  --el-color-primary: hsl(var(--primary));
+  --el-color-primary-light-3: hsl(210 100% 66%);
+  --el-color-primary-light-5: hsl(210 100% 76%);
+  --el-color-primary-light-7: hsl(210 100% 86%);
+  --el-color-primary-light-8: hsl(210 100% 91%);
+  --el-color-primary-light-9: hsl(210 100% 96%);
+  --el-color-primary-dark-2: hsl(210 100% 46%);
+  --el-bg-color: hsl(var(--card));
+  --el-bg-color-overlay: hsl(var(--popover));
+  --el-text-color-primary: hsl(var(--foreground));
+  --el-text-color-regular: hsl(var(--muted-foreground));
+  --el-border-color: hsl(var(--border));
+  --el-border-color-light: hsl(var(--border));
+  --el-border-color-lighter: hsl(var(--border));
+  --el-fill-color-blank: hsl(var(--card));
+  --el-fill-color: hsl(var(--muted));
+  --el-mask-color: rgba(0, 0, 0, 0.7);
+}
+html {
+  --el-color-primary: hsl(var(--primary));
+  --el-bg-color: hsl(var(--card));
+  --el-bg-color-overlay: hsl(var(--popover));
+  --el-text-color-primary: hsl(var(--foreground));
+  --el-border-color: hsl(var(--border));
+}

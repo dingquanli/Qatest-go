@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Qatest 全流程测试平台</title>
+    <script>
+      // 在首屏渲染前根据已保存（或默认）的主题设置 html 的 class，避免闪烁与默认浅色误翻转
+      (function () {
+        try {
+          var t = localStorage.getItem('qt_theme') || 'light'
+          var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var el = document.documentElement
+          el.classList.remove('light', 'dark')
+          el.classList.add(dark ? 'dark' : 'light')
+          el.style.colorScheme = dark ? 'dark' : 'light'
+        } catch (e) {}
+      })()
+    </script>
+    <script type="module" crossorigin src="./assets/index-BOsbMlOz.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-JjP-JtSx.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
