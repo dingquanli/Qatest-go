@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 
 	"qatest/database"
@@ -19,7 +20,7 @@ func GetTestCases(c *gin.Context) {
 		 FROM test_cases ORDER BY updated_at DESC LIMIT ?`, limit,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	defer rows.Close()
@@ -29,13 +30,13 @@ func GetTestCases(c *gin.Context) {
 		var tc models.TestCase
 		if err := rows.Scan(&tc.ID, &tc.Name, &tc.ModuleID, &tc.Priority, &tc.Type, &tc.Precondition,
 			&tc.Steps, &tc.Assignee, &tc.Status, &tc.Tags, &tc.CreatedAt, &tc.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 			return
 		}
 		cases = append(cases, tc)
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 
@@ -65,6 +66,15 @@ func CreateTestCase(c *gin.Context) {
 		return
 	}
 
+	// P2-8 修复：服务端校验枚举字段，拒绝非法取值（空值视为未设置，允许）
+	validEnum := func(v string, allowed ...string) bool { return v == "" || validateEnum(v, allowed...) }
+	if !validEnum(tc.Priority, "P0", "P1", "P2", "P3") ||
+		!validEnum(tc.Type, "functional", "performance", "security", "compatibility", "usability") ||
+		!validEnum(tc.Status, "draft", "review", "approved", "archived") {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "非法的 priority/type/status 取值"})
+		return
+	}
+
 	tc.ID = generateID("tc")
 	tc.CreatedAt = models.NowStr()
 	tc.UpdatedAt = tc.CreatedAt
@@ -76,7 +86,7 @@ func CreateTestCase(c *gin.Context) {
 		tc.Steps, tc.Assignee, tc.Status, tc.Tags, tc.ScriptID, tc.CreatedAt, tc.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 
@@ -91,6 +101,15 @@ func UpdateTestCase(c *gin.Context) {
 		return
 	}
 
+	// P2-8 修复：服务端校验枚举字段，拒绝非法取值（空值视为未设置，允许）
+	validEnum := func(v string, allowed ...string) bool { return v == "" || validateEnum(v, allowed...) }
+	if !validEnum(tc.Priority, "P0", "P1", "P2", "P3") ||
+		!validEnum(tc.Type, "functional", "performance", "security", "compatibility", "usability") ||
+		!validEnum(tc.Status, "draft", "review", "approved", "archived") {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "非法的 priority/type/status 取值"})
+		return
+	}
+
 	tc.UpdatedAt = models.NowStr()
 	_, err := database.DB.Exec(
 		`UPDATE test_cases SET name=?, module_id=?, priority=?, type=?, precondition=?, steps=?, assignee=?, status=?, tags=?, script_id=?, updated_at=?
@@ -99,7 +118,7 @@ func UpdateTestCase(c *gin.Context) {
 		tc.Assignee, tc.Status, tc.Tags, tc.ScriptID, tc.UpdatedAt, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 
@@ -111,7 +130,7 @@ func DeleteTestCase(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM test_cases WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -126,7 +145,7 @@ func BatchImportCases(c *gin.Context) {
 
 	tx, err := database.DB.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 
@@ -149,9 +168,20 @@ func BatchImportCases(c *gin.Context) {
 	}
 
 	if failed > 0 {
-		tx.Rollback()
-	} else {
-		tx.Commit()
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Printf("[ERROR] BatchImportCases 回滚失败: %v", rbErr)
+		}
+		// 事务已整体回滚，实际未导入任何用例，响应需与之一致
+		c.JSON(http.StatusOK, models.APIResponse{
+			Success: false,
+			Error:   "部分用例导入失败，已整体回滚",
+			Data:    gin.H{"imported": 0, "failed": failed},
+		})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(c, http.StatusInternalServerError, err, "提交用例导入失败")
+		return
 	}
 
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: gin.H{"imported": imported, "failed": failed}})
@@ -162,7 +192,7 @@ func BatchImportCases(c *gin.Context) {
 func GetCaseModules(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT id, name, parent_id, sort_order, created_at FROM case_modules ORDER BY sort_order")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	defer rows.Close()
@@ -171,7 +201,7 @@ func GetCaseModules(c *gin.Context) {
 	for rows.Next() {
 		var m models.CaseModule
 		if err := rows.Scan(&m.ID, &m.Name, &m.ParentID, &m.SortOrder, &m.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 			return
 		}
 		modules = append(modules, m)
@@ -192,7 +222,7 @@ func CreateCaseModule(c *gin.Context) {
 	_, err := database.DB.Exec("INSERT INTO case_modules (id, name, parent_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
 		m.ID, m.Name, m.ParentID, m.SortOrder, m.CreatedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 
@@ -210,7 +240,7 @@ func UpdateCaseModule(c *gin.Context) {
 	_, err := database.DB.Exec("UPDATE case_modules SET name=?, parent_id=?, sort_order=? WHERE id=?",
 		m.Name, m.ParentID, m.SortOrder, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	m.ID = id
@@ -221,7 +251,7 @@ func DeleteCaseModule(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM case_modules WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -234,7 +264,7 @@ func GetCaseExecutions(c *gin.Context) {
 		"SELECT id, case_id, case_name, executor, result, steps, duration, remark, executed_at, plan_id, execution_id FROM case_executions ORDER BY executed_at DESC LIMIT 100",
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	defer rows.Close()
@@ -243,7 +273,7 @@ func GetCaseExecutions(c *gin.Context) {
 	for rows.Next() {
 		var e models.CaseExecution
 		if err := rows.Scan(&e.ID, &e.CaseID, &e.CaseName, &e.Executor, &e.Result, &e.Steps, &e.Duration, &e.Remark, &e.ExecutedAt, &e.PlanID, &e.ExecutionID); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 			return
 		}
 		execs = append(execs, e)
@@ -255,7 +285,7 @@ func GetCaseExecutions(c *gin.Context) {
 func GetCaseExecutionsStats(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT result, COUNT(*) as cnt FROM case_executions GROUP BY result")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	defer rows.Close()
@@ -265,7 +295,7 @@ func GetCaseExecutionsStats(c *gin.Context) {
 		var result string
 		var cnt int
 		if err := rows.Scan(&result, &cnt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 			return
 		}
 		stats[result] = cnt
@@ -284,12 +314,12 @@ func CreateCaseExecution(c *gin.Context) {
 	e.ID = generateID("ce")
 	e.ExecutedAt = models.NowStr()
 	_, err := database.DB.Exec(
-		`INSERT INTO case_executions (id, case_id, case_name, executor, result, steps, duration, remark, executed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.CaseID, e.CaseName, e.Executor, e.Result, e.Steps, e.Duration, e.Remark, e.ExecutedAt,
+		`INSERT INTO case_executions (id, case_id, case_name, executor, result, steps, duration, remark, executed_at, plan_id, execution_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.CaseID, e.CaseName, e.Executor, e.Result, e.Steps, e.Duration, e.Remark, e.ExecutedAt, e.PlanID, e.ExecutionID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 
@@ -310,7 +340,7 @@ func UpdateCaseExecution(c *gin.Context) {
 		e.CaseID, e.CaseName, e.Executor, e.Result, e.Steps, e.Duration, e.Remark, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	e.ID = id
@@ -328,7 +358,7 @@ func DeleteCaseExecution(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM case_executions WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})

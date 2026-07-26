@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -20,7 +21,7 @@ func GetTestPlans(c *gin.Context) {
 		"SELECT id, name, description, case_ids, status, start_date, end_date, created_at, updated_at FROM test_plans ORDER BY updated_at DESC LIMIT 100",
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	defer rows.Close()
@@ -29,7 +30,7 @@ func GetTestPlans(c *gin.Context) {
 	for rows.Next() {
 		var p models.TestPlan
 		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CaseIDs, &p.Status, &p.StartDate, &p.EndDate, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 			return
 		}
 		plans = append(plans, p)
@@ -65,7 +66,7 @@ func CreateTestPlan(c *gin.Context) {
 		p.ID, p.Name, p.Description, p.CaseIDs, p.Status, p.StartDate, p.EndDate, p.CreatedAt, p.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: p})
@@ -84,7 +85,7 @@ func UpdateTestPlan(c *gin.Context) {
 		p.Name, p.Description, p.CaseIDs, p.Status, p.StartDate, p.EndDate, p.UpdatedAt, id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	p.ID = id
@@ -95,7 +96,7 @@ func DeleteTestPlan(c *gin.Context) {
 	id := c.Param("id")
 	_, err := database.DB.Exec("DELETE FROM test_plans WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
@@ -106,7 +107,7 @@ func DeleteTestPlan(c *gin.Context) {
 func GetPlanExecutions(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT id, plan_id, plan_name, status, result, cases_total, cases_passed, cases_failed, executed_by, finished_at, cases_detail, duration, started_at, created_at FROM plan_executions ORDER BY created_at DESC LIMIT 100")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	defer rows.Close()
@@ -114,7 +115,7 @@ func GetPlanExecutions(c *gin.Context) {
 	for rows.Next() {
 		var e models.PlanExecution
 		if err := rows.Scan(&e.ID, &e.PlanID, &e.PlanName, &e.Status, &e.Result, &e.CasesTotal, &e.CasesPassed, &e.CasesFailed, &e.ExecutedBy, &e.FinishedAt, &e.CasesDetail, &e.Duration, &e.StartedAt, &e.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 			return
 		}
 		execs = append(execs, e)
@@ -167,7 +168,7 @@ func CreatePlanExecution(c *gin.Context) {
 		e.ExecutedBy, e.FinishedAt, e.CasesDetail, e.Duration, e.StartedAt, e.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: e})
@@ -178,7 +179,7 @@ func CreatePlanExecution(c *gin.Context) {
 func GetAutoTaskExecutions(c *gin.Context) {
 	rows, err := database.DB.Query("SELECT id, task_id, task_name, status, result, logs, started_at, finished_at, created_at FROM auto_task_executions ORDER BY created_at DESC LIMIT 100")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	defer rows.Close()
@@ -186,7 +187,7 @@ func GetAutoTaskExecutions(c *gin.Context) {
 	for rows.Next() {
 		var e models.AutoTaskExecution
 		if err := rows.Scan(&e.ID, &e.TaskID, &e.TaskName, &e.Status, &e.Result, &e.Logs, &e.StartedAt, &e.FinishedAt, &e.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 			return
 		}
 		execs = append(execs, e)
@@ -205,7 +206,7 @@ func CreateAutoTaskExecution(c *gin.Context) {
 	_, err := database.DB.Exec("INSERT INTO auto_task_executions (id, task_id, task_name, status, result, logs, created_at) VALUES (?,?,?,?,?,?,?)",
 		e.ID, e.TaskID, e.TaskName, e.Status, e.Result, e.Logs, e.CreatedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: e})
@@ -264,7 +265,7 @@ func ExecuteTestPlan(c *gin.Context) {
 		req.Executor, "", "[]", 0, now, now,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 
@@ -285,7 +286,7 @@ func ExecuteTestPlan(c *gin.Context) {
 			ceID, cid, caseName, req.Executor, "pending", steps, 0, "", now, planExecID, "",
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: err.Error()})
+			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 			return
 		}
 		ce := models.CaseExecution{
@@ -303,7 +304,10 @@ func ExecuteTestPlan(c *gin.Context) {
 
 	// 将逐用例明细写回 plan_executions（初始全 pending）
 	detail := buildPlanDetail(caseExecs)
-	database.DB.Exec("UPDATE plan_executions SET cases_detail=? WHERE id=?", detail, planExecID)
+	if err := database.DB.Exec("UPDATE plan_executions SET cases_detail=? WHERE id=?", detail, planExecID); err != nil {
+		respondError(c, http.StatusInternalServerError, err, "保存计划执行明细失败")
+		return
+	}
 
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: gin.H{
 		"planExecution": planExecID,
@@ -339,7 +343,9 @@ func dispatchCaseScript(c *gin.Context, caseExecID, planID, scriptID, caseName, 
 	}
 
 	// 记录脚本执行与用例执行的关联
-	database.DB.Exec("UPDATE case_executions SET execution_id=? WHERE id=?", execID, caseExecID)
+	if _, err = database.DB.Exec("UPDATE case_executions SET execution_id=? WHERE id=?", execID, caseExecID); err != nil {
+		log.Printf("[WARN] 关联脚本执行与用例执行失败: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	task := &services.ExecutionTask{

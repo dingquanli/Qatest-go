@@ -22,7 +22,7 @@ type CaseModule struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder int    `json:"sortOrder"`
 	CreatedAt string `json:"createdAt"`
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"qatest/config"
 	"qatest/services"
@@ -12,6 +13,14 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/gin-gonic/gin"
+)
+
+// WebSocket 读写参数：服务端定时发 ping，客户端（浏览器）按规范自动回 pong；
+// 若超过 pongWait 未收到 pong，读超时触发，及时释放连接资源（P1-6 修复）。
+const (
+	wsPongWait   = 60 * time.Second
+	wsPingPeriod = wsPongWait * 9 / 10
+	wsWriteWait  = 10 * time.Second
 )
 
 var upgrader = websocket.Upgrader{
@@ -53,6 +62,8 @@ var (
 	wsMu         sync.Mutex
 	proxyClients = make(map[*websocket.Conn]bool)
 	proxyMu      sync.Mutex
+	// wsWriteMu 串行化所有 WebSocket 写操作，避免广播与心跳 ping 并发写同一连接
+	wsWriteMu sync.Mutex
 )
 
 // init 在包加载时将广播函数注册到 ProxyServer 和 Executor，接线 P0-1/P0-2/P0-3
@@ -61,6 +72,30 @@ func init() {
 	services.ProxyInstance.SetBroadcastFunc(BroadcastProxyWS)
 	// P0-3: 注册日志广播函数 → executor.consumeLogs → BroadcastWS
 	services.SetLogBroadcastFunc(BroadcastWS)
+}
+
+// setupWSHeartbeat 配置连接的读超时与 pong 处理，并返回用于发送心跳 ping 的 ticker。
+// 心跳 goroutine 由调用方通过 defer ticker.Stop() 停止。
+func setupWSHeartbeat(conn *websocket.Conn) *time.Ticker {
+	conn.SetReadLimit(1 << 20)
+	conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		return nil
+	})
+	ticker := time.NewTicker(wsPingPeriod)
+	go func() {
+		for range ticker.C {
+			wsWriteMu.Lock()
+			conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			err := conn.WriteMessage(websocket.PingMessage, nil)
+			wsWriteMu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return ticker
 }
 
 // HandleWebSocket 执行日志 WebSocket
@@ -74,6 +109,9 @@ func HandleWebSocket(c *gin.Context) {
 	wsMu.Lock()
 	wsClients[conn] = true
 	wsMu.Unlock()
+
+	ticker := setupWSHeartbeat(conn)
+	defer ticker.Stop()
 
 	defer func() {
 		wsMu.Lock()
@@ -108,6 +146,9 @@ func HandleProxyWebSocket(c *gin.Context) {
 	services.ProxyInstance.RegisterWSClient()
 	defer services.ProxyInstance.UnregisterWSClient()
 
+	ticker := setupWSHeartbeat(conn)
+	defer ticker.Stop()
+
 	defer func() {
 		proxyMu.Lock()
 		delete(proxyClients, conn)
@@ -131,7 +172,9 @@ func BroadcastWS(message []byte) {
 	wsMu.Lock()
 	defer wsMu.Unlock()
 	for conn := range wsClients {
+		wsWriteMu.Lock()
 		err := conn.WriteMessage(websocket.TextMessage, message)
+		wsWriteMu.Unlock()
 		if err != nil {
 			conn.Close()
 			delete(wsClients, conn)
@@ -144,7 +187,9 @@ func BroadcastProxyWS(message []byte) {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
 	for conn := range proxyClients {
+		wsWriteMu.Lock()
 		err := conn.WriteMessage(websocket.TextMessage, message)
+		wsWriteMu.Unlock()
 		if err != nil {
 			conn.Close()
 			delete(proxyClients, conn)

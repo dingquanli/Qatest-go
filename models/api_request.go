@@ -19,7 +19,7 @@ type APIDefModule struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder int    `json:"sortOrder"`
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -44,7 +44,7 @@ type APIFolder struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder int    `json:"sortOrder"`
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -73,7 +73,7 @@ type TableCase struct {
 	Assignee     string `json:"assignee"`
 	Status       string `json:"status"`
 	Tags         string `json:"tags"` // JSON
-	SortOrder    int    `json:"sort_order"`
+	SortOrder    int    `json:"sortOrder"`
 	CreatedAt    string `json:"createdAt"`
 	UpdatedAt    string `json:"updatedAt"`
 }
@@ -83,7 +83,7 @@ type TableModule struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder int    `json:"sortOrder"`
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -100,7 +100,7 @@ type XmindCase struct {
 	Assignee     string `json:"assignee"`
 	Status       string `json:"status"`
 	Tags         string `json:"tags"`
-	SortOrder    int    `json:"sort_order"`
+	SortOrder    int    `json:"sortOrder"`
 	CreatedAt    string `json:"createdAt"`
 	UpdatedAt    string `json:"updatedAt"`
 }
@@ -110,6 +110,6 @@ type XmindModule struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder int    `json:"sortOrder"`
 	CreatedAt string `json:"createdAt"`
 }
