@@ -1,5 +1,5 @@
 import request from './request'
-import type { TestPlan, PlanExecution, AutoTaskExecution } from '@/types'
+import type { TestPlan, PlanExecution, AutoTaskExecution, CaseExecution } from '@/types'
 
 /* ---------- 测试计划 ---------- */
 export const getTestPlans = (): Promise<TestPlan[]> => request.get<TestPlan[]>('/test-plans')

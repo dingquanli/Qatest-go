@@ -66,7 +66,7 @@ func CreateTestCase(c *gin.Context) {
 		return
 	}
 
-	// P2-8 修复：服务端校验枚举字段，拒绝非法取值（空值视为未设置，允许）
+	// 服务端校验枚举字段，拒绝非法取值（空值视为未设置，允许）
 	validEnum := func(v string, allowed ...string) bool { return v == "" || validateEnum(v, allowed...) }
 	if !validEnum(tc.Priority, "P0", "P1", "P2", "P3") ||
 		!validEnum(tc.Type, "functional", "performance", "security", "compatibility", "usability") ||
@@ -101,7 +101,7 @@ func UpdateTestCase(c *gin.Context) {
 		return
 	}
 
-	// P2-8 修复：服务端校验枚举字段，拒绝非法取值（空值视为未设置，允许）
+	// 服务端校验枚举字段，拒绝非法取值（空值视为未设置，允许）
 	validEnum := func(v string, allowed ...string) bool { return v == "" || validateEnum(v, allowed...) }
 	if !validEnum(tc.Priority, "P0", "P1", "P2", "P3") ||
 		!validEnum(tc.Type, "functional", "performance", "security", "compatibility", "usability") ||
@@ -162,7 +162,7 @@ func BatchImportCases(c *gin.Context) {
 			tc.Steps, tc.Assignee, tc.Status, tc.Tags, tc.CreatedAt, tc.UpdatedAt,
 		); e != nil {
 			failed++
-			continue // P2-4 修复：不 break，继续处理剩余条目
+			continue // 不 break，继续处理剩余条目
 		}
 		imported++
 	}

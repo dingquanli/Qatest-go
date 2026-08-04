@@ -36,7 +36,18 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// 反代信任配置（P2 修复：默认不信任任何代理，c.ClientIP() 返回直连 IP，
+	// 防止伪造 X-Forwarded-For 绕过限流；部署在反代后时用 TRUSTED_PROXIES 显式声明代理网段）
 	r := gin.New()
+	if len(config.AppConfig.TrustedProxies) == 0 {
+		if err := r.SetTrustedProxies(nil); err != nil {
+			log.Fatalf("设置 TrustedProxies 失败: %v", err)
+		}
+	} else {
+		if err := r.SetTrustedProxies(config.AppConfig.TrustedProxies); err != nil {
+			log.Fatalf("TRUSTED_PROXIES 配置无效: %v", err)
+		}
+	}
 
 	routes.RegisterRoutes(r)
 

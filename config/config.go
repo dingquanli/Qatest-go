@@ -63,12 +63,20 @@ type Config struct {
 	JWTSecret      string
 	JWTExpiresIn   time.Duration
 	AllowedOrigins []string
+	// TrustedProxies 可信反向代理网段（CIDR 列表）。
+	// 为空表示不信任任何代理：gin 的 c.ClientIP() 将返回直连 IP（连接 IP），
+	// 攻击者无法用 X-Forwarded-For 伪造限流/审计 IP；部署在反代后时，
+	// 需在 .env 中用 TRUSTED_PROXIES 显式声明代理网段以还原真实客户端 IP。
+	TrustedProxies []string
 	LogLevel       string
 	ProxyTarget    string
 	ProtoDir       string
 	LogDir         string
 	ApkDir         string
 	Users          []UserConfig
+	// ExecutorEnabled 脚本执行引擎总开关（默认开启，与历史行为一致）。
+	// 设为 false 时拒绝创建任何脚本执行任务（RCE 高危能力的部署侧熔断开关）。
+	ExecutorEnabled bool
 	// Jira 同步配置（环境变量为源，系统设置表可覆盖）
 	JiraBaseURL  string
 	JiraEmail     string
@@ -100,7 +108,9 @@ func Load() *Config {
 		JiraAPIToken:  getEnv("JIRA_API_TOKEN", ""),
 		JiraProject:   getEnv("JIRA_PROJECT", ""),
 		Users: []UserConfig{
-			{Username: "admin", PasswordHash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy", Name: "管理员", Role: "admin"},
+			// 默认 admin 用户的口令哈希始终由 ADMIN_PASSWORD 覆盖（下方强校验必填），
+			// 此处不写死任何 bcrypt 哈希，避免开源仓库中出现「经典 password 哈希」误导读者。
+			{Username: "admin", PasswordHash: "", Name: "管理员", Role: "admin"},
 		},
 	}
 
@@ -117,6 +127,19 @@ func Load() *Config {
 		cfg.AllowedOrigins[i] = strings.TrimSpace(cfg.AllowedOrigins[i])
 	}
 
+	// 可信反向代理网段（逗号分隔 CIDR，如 "10.0.0.0/8,172.16.0.0/12"）
+	trusted := getEnv("TRUSTED_PROXIES", "")
+	for _, p := range strings.Split(trusted, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			cfg.TrustedProxies = append(cfg.TrustedProxies, p)
+		}
+	}
+
+	// RCE 高危能力熔断开关：默认开启（保持历史行为）；"0"/"false"/"off" 关闭
+	cfg.ExecutorEnabled = !strings.EqualFold(getEnv("EXECUTOR_ENABLED", "1"), "0") &&
+		!strings.EqualFold(getEnv("EXECUTOR_ENABLED", "1"), "false") &&
+		!strings.EqualFold(getEnv("EXECUTOR_ENABLED", "1"), "off")
+
 	if usersJSON := os.Getenv("QATEST_USERS"); usersJSON != "" {
 		var users []UserConfig
 		if err := json.Unmarshal([]byte(usersJSON), &users); err == nil {
@@ -124,7 +147,7 @@ func Load() *Config {
 		}
 	}
 
-	// 默认管理员口令处理（P0-5 修复：未设 ADMIN_PASSWORD 时拒绝启动，而非仅告警）
+	// 默认管理员口令处理（未设 ADMIN_PASSWORD 时拒绝启动，而非仅告警）
 	if adminPwd := os.Getenv("ADMIN_PASSWORD"); adminPwd != "" {
 		hashed, hashErr := bcrypt.GenerateFromPassword([]byte(adminPwd), bcrypt.DefaultCost)
 		if hashErr != nil {
@@ -137,11 +160,11 @@ func Load() *Config {
 		}
 		log.Printf("INFO: 已使用环境变量 ADMIN_PASSWORD 覆盖默认管理员口令哈希")
 	} else {
-		// P0-5: 不再仅告警，而是拒绝启动
+		// 不再仅告警，而是拒绝启动
 		log.Fatalf("ADMIN_PASSWORD 未设置，拒绝启动；请配置管理员口令环境变量")
 	}
 
-	// P0-4: 读取 JS 脚本执行认证 token
+	// 读取 JS 脚本执行认证 token
 	JSAuthToken = os.Getenv("JS_AUTH_TOKEN")
 
 	AppConfig = cfg

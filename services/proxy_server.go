@@ -32,7 +32,7 @@ import (
 
 const DefaultProxyPort = 18924
 
-// maxExecutions 限制执行历史记录上限，避免无界增长（P1-8 修复）
+// maxExecutions 限制执行历史记录上限，避免无界增长
 const maxExecutions = 1000
 
 // ProxyBroadcastMessage WebSocket 广播消息
@@ -105,7 +105,8 @@ type ProxyServer struct {
 	logFile       *os.File
 	logSeq        int32
 	logCh         chan ProxyLogEntry   // 异步日志 channel
-	logWg         sync.WaitGroup       // 日志 writer goroutine 等待（P1-9 修复）
+	logChMu       sync.RWMutex         // 保护 logCh 的创建/关闭，防止 send-on-closed-channel panic
+	logWg         sync.WaitGroup       // 日志 writer goroutine 等待
 	executions    []ProxyExecution
 	executionsMu  sync.Mutex
 	broadcastFn   func([]byte) // WebSocket 广播回调
@@ -211,7 +212,7 @@ func (ps *ProxyServer) Start(target string) error {
 }
 
 // Stop 停止代理
-// P1-9 修复：closeLog 不在持锁状态下调用，避免 writer goroutine 死锁
+// closeLog 不在持锁状态下调用，避免 writer goroutine 死锁
 func (ps *ProxyServer) Stop() {
 	ps.mu.Lock()
 	if !ps.running {
@@ -225,8 +226,10 @@ func (ps *ProxyServer) Stop() {
 		ps.httpServer.Shutdown(ctx)
 	}
 
-	// 清理所有等待中的请求
+	// 清理所有等待中的请求：先置为 error 再唤醒，避免 handleGRPC 被唤醒后
+	// 继续走 forwarded 转发分支（否则会在代理停止后仍发起对外请求）。
 	for _, p := range ps.pending {
+		p.State = "error"
 		if p.ResolveRequest != nil {
 			select {
 			case p.ResolveRequest <- struct{}{}:
@@ -273,6 +276,38 @@ func (ps *ProxyServer) RegisterWSClient() {
 // UnregisterWSClient WebSocket 客户端注销
 func (ps *ProxyServer) UnregisterWSClient() {
 	atomic.AddInt32(&ps.wsClientCount, -1)
+}
+
+// NotifyNoWSClient WS 客户端全部断开时由 handlers 调用：
+// 将所有仍处于等待决策/转发中的 pending 请求置为 error 并唤醒，
+// 避免它们残留到 5 分钟超时（代理状态机边界加固）。
+// 若后续仍有新请求进来且无 WS 客户端，会在阶段一等待时自然超时返回。
+func (ps *ProxyServer) NotifyNoWSClient() {
+	if atomic.LoadInt32(&ps.wsClientCount) > 0 {
+		return
+	}
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	aborted := 0
+	for _, p := range ps.pending {
+		if p.State == "waiting-request" || p.State == "waiting-response" || p.State == "forwarded" {
+			p.State = "error"
+			aborted++
+			if p.ResolveRequest != nil {
+				select {
+				case p.ResolveRequest <- struct{}{}:
+				default:
+				}
+			}
+			if p.ResolveResponse != nil {
+				select {
+				case p.ResolveResponse <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}
+	log.Printf("[proxy] WS 客户端已全部断开，已中止 %d 个等待中的请求", aborted)
 }
 
 // ============================================================
@@ -1178,7 +1213,7 @@ func (ps *ProxyServer) ClearExecutions() {
 	ps.executions = nil
 }
 
-// recordExecution 记录一条执行历史（P1-8 修复：超过上限时裁剪旧记录）
+// recordExecution 记录一条执行历史（超过上限时裁剪旧记录）
 func (ps *ProxyServer) recordExecution(id int, method, target string, elapsed int64) {
 	ps.executionsMu.Lock()
 	defer ps.executionsMu.Unlock()
@@ -1237,6 +1272,8 @@ func (ps *ProxyServer) initLog() {
 }
 
 // writeLog 异步写入一条 JSONL 日志（通过 channel 解耦，不阻塞主锁）
+// 用 logChMu 保护 channel 生命周期：避免与 closeLog 并发时
+// 向已关闭 channel 发送导致 panic（代理停止瞬间仍有活跃转发路径时）。
 func (ps *ProxyServer) writeLog(entry ProxyLogEntry) {
 	if ps.logFile == nil {
 		return
@@ -1253,9 +1290,16 @@ func (ps *ProxyServer) writeLog(entry ProxyLogEntry) {
 		}
 	}
 
+	ps.logChMu.RLock()
+	ch := ps.logCh
+	ps.logChMu.RUnlock()
+	if ch == nil {
+		return
+	}
+
 	// 非序列化到 channel，由后台 goroutine 持锁写盘
 	select {
-	case ps.logCh <- entry:
+	case ch <- entry:
 	default:
 		// channel 满时丢弃，避免阻塞转发路径
 	}
@@ -1263,7 +1307,9 @@ func (ps *ProxyServer) writeLog(entry ProxyLogEntry) {
 
 // startLogWriter 启动后台日志写入 goroutine
 func (ps *ProxyServer) startLogWriter() {
+	ps.logChMu.Lock()
 	ps.logCh = make(chan ProxyLogEntry, 256)
+	ps.logChMu.Unlock()
 	ps.logWg.Add(1)
 	go func() {
 		defer ps.logWg.Done()
@@ -1278,12 +1324,14 @@ func (ps *ProxyServer) startLogWriter() {
 	}()
 }
 
-// stopLogWriter 停止后台日志写入 goroutine 并刷盘（P1-9 修复：先 close channel，再 WaitGroup 等待 goroutine 退出）
+// stopLogWriter 停止后台日志写入 goroutine 并刷盘（先 close channel，再 WaitGroup 等待 goroutine 退出）
 func (ps *ProxyServer) stopLogWriter() {
+	ps.logChMu.Lock()
 	if ps.logCh != nil {
 		close(ps.logCh)
 		ps.logCh = nil
 	}
+	ps.logChMu.Unlock()
 	ps.logWg.Wait() // 等待 writer goroutine 处理完剩余日志后退出
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"qatest/config"
 	"qatest/database"
 	"qatest/models"
 	"qatest/services"
@@ -66,6 +67,12 @@ func GetExecution(c *gin.Context) {
 
 // CreateExecution 创建并执行脚本
 func CreateExecution(c *gin.Context) {
+	// RCE 高危能力熔断：EXECUTOR_ENABLED=0 时拒绝创建任何脚本执行任务
+	if !config.AppConfig.ExecutorEnabled {
+		c.JSON(http.StatusForbidden, models.APIResponse{Success: false, Error: "脚本执行引擎已禁用（EXECUTOR_ENABLED=0），请管理员在服务端配置中开启"})
+		return
+	}
+
 	var req models.CreateExecutionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误"})

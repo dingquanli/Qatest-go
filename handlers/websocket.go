@@ -16,7 +16,7 @@ import (
 )
 
 // WebSocket 读写参数：服务端定时发 ping，客户端（浏览器）按规范自动回 pong；
-// 若超过 pongWait 未收到 pong，读超时触发，及时释放连接资源（P1-6 修复）。
+// 若超过 pongWait 未收到 pong，读超时触发，及时释放连接资源。
 const (
 	wsPongWait   = 60 * time.Second
 	wsPingPeriod = wsPongWait * 9 / 10
@@ -24,7 +24,7 @@ const (
 )
 
 var upgrader = websocket.Upgrader{
-	// P1-5：按来源白名单校验，禁止任意跨站 WebSocket 连接
+	// 按来源白名单校验，禁止任意跨站 WebSocket 连接
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		// 无 Origin 头（同源/非浏览器）允许
@@ -66,11 +66,11 @@ var (
 	wsWriteMu sync.Mutex
 )
 
-// init 在包加载时将广播函数注册到 ProxyServer 和 Executor，接线 P0-1/P0-2/P0-3
+// init 在包加载时将广播函数注册到 ProxyServer 和 Executor
 func init() {
-	// P0-1: 注册代理广播函数 → proxy_server.broadcast → BroadcastProxyWS
+	// 注册代理广播函数 → proxy_server.broadcast → BroadcastProxyWS
 	services.ProxyInstance.SetBroadcastFunc(BroadcastProxyWS)
-	// P0-3: 注册日志广播函数 → executor.consumeLogs → BroadcastWS
+	// 注册日志广播函数 → executor.consumeLogs → BroadcastWS
 	services.SetLogBroadcastFunc(BroadcastWS)
 }
 
@@ -130,7 +130,7 @@ func HandleWebSocket(c *gin.Context) {
 }
 
 // HandleProxyWebSocket 代理 WebSocket
-// P0-2 修复：读取前端决策消息并转发给 ProxyServer.HandleProxyWsMessage
+// 读取前端决策消息并转发给 ProxyServer.HandleProxyWsMessage
 func HandleProxyWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -142,9 +142,14 @@ func HandleProxyWebSocket(c *gin.Context) {
 	proxyClients[conn] = true
 	proxyMu.Unlock()
 
-	// P0-1: 注册 WS 客户端计数
+	// 注册 WS 客户端计数
 	services.ProxyInstance.RegisterWSClient()
-	defer services.ProxyInstance.UnregisterWSClient()
+	defer func() {
+		services.ProxyInstance.UnregisterWSClient()
+		// 边界加固：全部代理 WS 客户端断开后，立即中止等待中的 pending 请求，
+		// 避免它们残留到 5 分钟超时；页面刷新/断线不会阻塞后续代理流程。
+		services.ProxyInstance.NotifyNoWSClient()
+	}()
 
 	ticker := setupWSHeartbeat(conn)
 	defer ticker.Stop()
@@ -156,7 +161,7 @@ func HandleProxyWebSocket(c *gin.Context) {
 		conn.Close()
 	}()
 
-	// P0-2: 读取前端决策消息并转发给 ProxyServer
+	// 读取前端决策消息并转发给 ProxyServer
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
@@ -167,7 +172,7 @@ func HandleProxyWebSocket(c *gin.Context) {
 }
 
 // BroadcastWS 向所有执行日志 WebSocket 客户端广播消息
-// P0-3 修复：executor.go 的 LogChan 消费者通过此函数推送日志到前端
+// executor.go 的 LogChan 消费者通过此函数推送日志到前端
 func BroadcastWS(message []byte) {
 	wsMu.Lock()
 	defer wsMu.Unlock()

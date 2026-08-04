@@ -219,7 +219,7 @@ func ReceiveReport(c *gin.Context) {
 	}
 
 	// 上报令牌校验：必须与服务端 settings.report_token 一致，否则拒绝。
-	// 关闭「任意客户端匿名灌库」的鉴权缺口（P1-1）。
+	// 关闭「任意客户端匿名灌库」的鉴权缺口。
 	ensureReportToken()
 	if !validReportToken(token) {
 		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Error: "上报令牌无效，请使用「下载 SDK」页显示的上报 Token"})
@@ -310,11 +310,11 @@ func maskRecursive(v any) any {
 }
 
 // fallbackMaskRe 在非 JSON（纯文本/畸形）时退化为正则脱敏（仅遮盖字符串值）。
-// 预先编译一次，避免循环内重复编译（P2-4）。
+// 预先编译一次，避免循环内重复编译。
 var fallbackMaskRe = regexp.MustCompile(`(?i)("(?:credential|authtoken|token|password|secret|apikey|key|authorization)"\s*:\s*")[^"]*(")`)
 
 // maskSensitiveJSON 对 JSON 字符串中的敏感字段值做脱敏。
-// 优先解析为对象后递归处理（可覆盖嵌套对象/数组），失败则退化为正则（P2-4）。
+// 优先解析为对象后递归处理（可覆盖嵌套对象/数组），失败则退化为正则。
 func maskSensitiveJSON(s string) string {
 	if s == "" || s == "null" {
 		return s
@@ -332,7 +332,7 @@ func maskSensitiveJSON(s string) string {
 }
 
 // ============================================================
-// 上报令牌（P1-1）：关闭匿名写 qa_reports 的鉴权缺口
+// 上报令牌：关闭匿名写 qa_reports 的鉴权缺口
 // ============================================================
 
 const reportTokenKey = "report_token"
@@ -377,7 +377,7 @@ func generateSecureToken(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// GetQaReports 查询 SDK 上报记录（分页 + 按 event 过滤），供前端「SDK 上报」查看页（P1-2）。
+// GetQaReports 查询 SDK 上报记录（分页 + 按 event 过滤），供前端「SDK 上报」查看页。
 func GetQaReports(c *gin.Context) {
 	event := strings.TrimSpace(c.Query("event"))
 	limit := atoiDefault(c.Query("limit"), 50)

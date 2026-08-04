@@ -19,7 +19,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-// Proto 目录遍历安全上限（P1-9：防止目录遍历导致整盘解析的 DoS）
+// Proto 目录遍历安全上限（防止目录遍历导致整盘解析的 DoS）
 const (
 	maxProtoFiles    = 200
 	maxProtoFileSize = 5 * 1024 * 1024 // 5MB
@@ -109,7 +109,7 @@ func (pl *ProtoLoaderManager) SetDir(dir string) error {
 		return fmt.Errorf("目录不存在: %s", dir)
 	}
 
-	// P1-9：限制为可信基目录，避免任意目录（如 "/"）整盘遍历。
+	// 限制为可信基目录，避免任意目录（如 "/"）整盘遍历。
 	// 仅当配置了 PROTO_DIR 时才强制基目录约束；未配置时不限制基目录，
 	// 但仍由下方文件数量/大小上限提供 DoS 防护。
 	if base := config.AppConfig.ProtoDir; base != "" {
@@ -258,7 +258,7 @@ func (pl *ProtoLoaderManager) loadProtoDescriptors(dir string) error {
 			return filepath.SkipDir
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".proto") {
-			// P1-9：单文件大小与总文件数上限，防止遍历整盘导致 DoS
+			// 单文件大小与总文件数上限，防止遍历整盘导致 DoS
 			if info.Size() > maxProtoFileSize {
 				walkErr = fmt.Errorf("proto 文件 %s 大小 %d 超过上限 %d 字节", path, info.Size(), maxProtoFileSize)
 				return walkErr
@@ -393,7 +393,7 @@ func (pl *ProtoLoaderManager) scanProtos(dir string) error {
 			return filepath.SkipDir
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".proto") {
-			// P1-9：单文件大小与总文件数上限，防止遍历整盘导致 DoS
+			// 单文件大小与总文件数上限，防止遍历整盘导致 DoS
 			if info.Size() > maxProtoFileSize {
 				walkErr = fmt.Errorf("proto 文件 %s 大小 %d 超过上限 %d 字节", path, info.Size(), maxProtoFileSize)
 				return walkErr
@@ -762,6 +762,24 @@ func (pl *ProtoLoaderManager) decodeWireFormat(data []byte, msgDesc *ProtoMessag
 		if fieldInfo != nil {
 			fieldName = fieldInfo.Name
 		}
+		isRepeated := fieldInfo != nil && fieldInfo.Rule == "repeated"
+
+		// 将解码后的值写入结果：repeated 字段聚合为数组，其余直接赋值
+		setField := func(v interface{}) {
+			if !isRepeated {
+				result[fieldName] = v
+				return
+			}
+			if existing, ok := result[fieldName]; ok {
+				if arr, ok := existing.([]interface{}); ok {
+					result[fieldName] = append(arr, v)
+					return
+				}
+				result[fieldName] = []interface{}{existing, v}
+				return
+			}
+			result[fieldName] = []interface{}{v}
+		}
 
 		switch wireType {
 		case wireVarint:
@@ -771,12 +789,15 @@ func (pl *ProtoLoaderManager) decodeWireFormat(data []byte, msgDesc *ProtoMessag
 			}
 			offset += nn
 			if fieldInfo != nil && fieldInfo.Type == "bool" {
-				result[fieldName] = val != 0
+				setField(val != 0)
 			} else if fieldInfo != nil && (fieldInfo.Type == "enum" || isEnumType(fieldInfo.Type)) {
-				// P-修复: enum 值转为可读名称
-				result[fieldName] = pl.enumValueToString(fieldInfo.Type, val)
+				// enum 值转为可读名称
+				setField(pl.enumValueToString(fieldInfo.Type, val))
+			} else if fieldInfo != nil && (fieldInfo.Type == "sint32" || fieldInfo.Type == "sint64") {
+				// sint 用 zigzag 编码，解码时反向还原为有符号数
+				setField(zigzagDecode(val))
 			} else {
-				result[fieldName] = val
+				setField(val)
 			}
 
 		case wireFixed64:
@@ -786,9 +807,11 @@ func (pl *ProtoLoaderManager) decodeWireFormat(data []byte, msgDesc *ProtoMessag
 			bits := binary.LittleEndian.Uint64(data[offset:])
 			offset += 8
 			if fieldInfo != nil && fieldInfo.Type == "double" {
-				result[fieldName] = math.Float64frombits(bits)
+				setField(math.Float64frombits(bits))
+			} else if fieldInfo != nil && (fieldInfo.Type == "sfixed64" || fieldInfo.Type == "sint64") {
+				setField(int64(bits))
 			} else {
-				result[fieldName] = bits
+				setField(bits)
 			}
 
 		case wireLengthDelimited:
@@ -805,23 +828,45 @@ func (pl *ProtoLoaderManager) decodeWireFormat(data []byte, msgDesc *ProtoMessag
 			offset += l
 
 			if fieldInfo != nil && fieldInfo.Type == "string" {
-				result[fieldName] = string(payload)
+				setField(string(payload))
 			} else if fieldInfo != nil && isEnumType(fieldInfo.Type) {
 				// enum 在 wire format 中是 varint，但走到这里说明被当作 length-delimited 处理
 				// 尝试解码为 varint 并查找 enum 值名称
 				val, _ := decodeVarint(payload)
-				result[fieldName] = pl.enumValueToString(fieldInfo.Type, val)
+				setField(pl.enumValueToString(fieldInfo.Type, val))
 			} else if fieldInfo != nil && isMessageType(fieldInfo.Type) {
 				nestedDesc := pl.findMessageDesc("", fieldInfo.Type)
 				if nestedDesc != nil {
-					result[fieldName] = pl.decodeWireFormat(payload, nestedDesc)
+					setField(pl.decodeWireFormat(payload, nestedDesc))
 				} else {
-					result[fieldName] = map[string]interface{}{
+					setField(map[string]interface{}{
 						"_raw_bytes": fmt.Sprintf("%x", payload),
+					})
+				}
+			} else if fieldInfo != nil && isRepeated && isPackedVarintType(fieldInfo.Type) {
+				// packed repeated：length-delimited 载荷内是多个连续 varint（proto3 默认打包标量字段）。
+				// 整个 payload 已是一个完整数组，直接赋值，不再经 setField 聚合。
+				pOff := 0
+				var arr []interface{}
+				for pOff < len(payload) {
+					v, pn := decodeVarint(payload[pOff:])
+					if pn <= 0 {
+						break
+					}
+					pOff += pn
+					if fieldInfo.Type == "bool" {
+						arr = append(arr, v != 0)
+					} else if fieldInfo.Type == "enum" || isEnumType(fieldInfo.Type) {
+						arr = append(arr, pl.enumValueToString(fieldInfo.Type, v))
+					} else if fieldInfo.Type == "sint32" || fieldInfo.Type == "sint64" {
+						arr = append(arr, zigzagDecode(v))
+					} else {
+						arr = append(arr, v)
 					}
 				}
+				result[fieldName] = arr
 			} else {
-				result[fieldName] = string(payload)
+				setField(string(payload))
 			}
 
 		case wireFixed32:
@@ -831,9 +876,11 @@ func (pl *ProtoLoaderManager) decodeWireFormat(data []byte, msgDesc *ProtoMessag
 			bits := binary.LittleEndian.Uint32(data[offset:])
 			offset += 4
 			if fieldInfo != nil && fieldInfo.Type == "float" {
-				result[fieldName] = math.Float32frombits(bits)
+				setField(math.Float32frombits(bits))
+			} else if fieldInfo != nil && (fieldInfo.Type == "sfixed32" || fieldInfo.Type == "sint32") {
+				setField(int32(bits))
 			} else {
-				result[fieldName] = bits
+				setField(bits)
 			}
 		}
 	}
@@ -841,21 +888,46 @@ func (pl *ProtoLoaderManager) decodeWireFormat(data []byte, msgDesc *ProtoMessag
 	return result
 }
 
-func (pl *ProtoLoaderManager) encodeWireFormat(obj map[string]interface{}, msgDesc *ProtoMessageDesc) []byte {
-	fieldMap := make(map[string]*ProtoFieldInfo)
-	for i := range msgDesc.Fields {
-		fieldMap[msgDesc.Fields[i].Name] = &msgDesc.Fields[i]
+// isPackedVarintType 判断元素类型是否以 varint 表达（可作为 packed repeated 打包）。
+func isPackedVarintType(t string) bool {
+	switch t {
+	case "int32", "int64", "uint32", "uint64", "sint32", "sint64", "bool", "enum":
+		return true
 	}
+	// 自定义 enum 类型名同样以 varint 表达
+	return isEnumType(t)
+}
 
+func (pl *ProtoLoaderManager) encodeWireFormat(obj map[string]interface{}, msgDesc *ProtoMessageDesc) []byte {
 	var buf []byte
 
-	for _, f := range msgDesc.Fields {
+	for i := range msgDesc.Fields {
+		f := &msgDesc.Fields[i]
 		val, ok := obj[f.Name]
 		if !ok {
 			continue
 		}
 
-		wireType, data := pl.encodeFieldValue(val, &f)
+		if f.Rule == "repeated" {
+			// repeated 字段：逐元素独立编码（非 packed），wire 上与官方解码器兼容；
+			// 解码端同时支持 packed 与非 packed 两种形式。
+			arr, ok := val.([]interface{})
+			if !ok {
+				continue
+			}
+			for _, elem := range arr {
+				wireType, data := pl.encodeFieldValue(elem, f)
+				if data == nil {
+					continue
+				}
+				tag := uint64(f.ID)<<3 | uint64(wireType)
+				buf = append(buf, encodeVarint(tag)...)
+				buf = append(buf, data...)
+			}
+			continue
+		}
+
+		wireType, data := pl.encodeFieldValue(val, f)
 		if data == nil {
 			continue
 		}
@@ -868,12 +940,18 @@ func (pl *ProtoLoaderManager) encodeWireFormat(obj map[string]interface{}, msgDe
 	return buf
 }
 
-func (pl *ProtoLoaderManager) encodeFieldValue(val interface{}, f *ProtoFieldInfo) (wireType int, data []byte) {
-	if f.Rule == "repeated" {
-		return wireLengthDelimited, nil
-	}
+// zigzag 编码：sint32/sint64 使用（proto2/proto3 规范，负数必须 zigzag 否则编码错误）
+func zigzagEncode(v int64) uint64 {
+	return uint64(v<<1) ^ uint64(v>>63)
+}
 
-	// 修复：先检查 enum，再检查 message（之前 isEnumType 恒 false 导致 enum 被 message 分支吞掉）
+// zigzagDecode 反向还原 zigzag 编码的有符号数
+func zigzagDecode(v uint64) int64 {
+	return int64(v>>1) ^ -int64(v&1)
+}
+
+func (pl *ProtoLoaderManager) encodeFieldValue(val interface{}, f *ProtoFieldInfo) (wireType int, data []byte) {
+	// 先检查 enum，再检查 message（避免 enum 被 message 分支吞掉）
 	if isEnumType(f.Type) || f.Type == "enum" {
 		var v uint64
 		switch n := val.(type) {
@@ -884,9 +962,10 @@ func (pl *ProtoLoaderManager) encodeFieldValue(val interface{}, f *ProtoFieldInf
 		case int64:
 			v = uint64(n)
 		case string:
-			// enum 字符串值 → 尝试查找数值（已在 decode 时转为字符串）
-			// 如果是数字字符串则转换，否则跳过
+			// enum 字符串值 → 数字字符串直接转换；否则尝试按 enum 名查数值
 			if num, err := strconv.ParseUint(n, 10, 64); err == nil {
+				v = num
+			} else if num, ok := pl.enumValueToNumber(f.Type, n); ok {
 				v = num
 			} else {
 				return wireVarint, nil
@@ -911,8 +990,7 @@ func (pl *ProtoLoaderManager) encodeFieldValue(val interface{}, f *ProtoFieldInf
 	}
 
 	switch f.Type {
-	case "int32", "int64", "uint32", "uint64", "sint32", "sint64",
-		"fixed32", "fixed64", "sfixed32", "sfixed64", "bool":
+	case "int32", "int64", "uint32", "uint64", "bool":
 		var v uint64
 		switch n := val.(type) {
 		case float64:
@@ -929,6 +1007,56 @@ func (pl *ProtoLoaderManager) encodeFieldValue(val interface{}, f *ProtoFieldInf
 			return wireVarint, nil
 		}
 		return wireVarint, encodeVarint(v)
+
+	case "sint32", "sint64":
+		var v int64
+		switch n := val.(type) {
+		case float64:
+			v = int64(n)
+		case int:
+			v = int64(n)
+		case int64:
+			v = n
+		case bool:
+			if n {
+				v = 1
+			}
+		default:
+			return wireVarint, nil
+		}
+		return wireVarint, encodeVarint(zigzagEncode(v))
+
+	case "fixed32", "sfixed32":
+		var v uint64
+		switch n := val.(type) {
+		case float64:
+			v = uint64(n)
+		case int:
+			v = uint64(n)
+		case int64:
+			v = uint64(n)
+		default:
+			return wireFixed32, nil
+		}
+		buf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(buf, uint32(v))
+		return wireFixed32, buf
+
+	case "fixed64", "sfixed64":
+		var v uint64
+		switch n := val.(type) {
+		case float64:
+			v = uint64(n)
+		case int:
+			v = uint64(n)
+		case int64:
+			v = uint64(n)
+		default:
+			return wireFixed64, nil
+		}
+		buf := make([]byte, 8)
+		binary.LittleEndian.PutUint64(buf, v)
+		return wireFixed64, buf
 
 	case "float":
 		var v float32
@@ -968,6 +1096,31 @@ func (pl *ProtoLoaderManager) encodeFieldValue(val interface{}, f *ProtoFieldInf
 	default:
 		return wireLengthDelimited, nil
 	}
+}
+
+// enumValueToNumber 将 enum 名称转回数值（与 enumValueToString 互逆）。
+func (pl *ProtoLoaderManager) enumValueToNumber(typeName, name string) (uint64, bool) {
+	lookup := func(enum *descriptorpb.EnumDescriptorProto) (uint64, bool) {
+		if enum == nil {
+			return 0, false
+		}
+		for _, v := range enum.GetValue() {
+			if v.GetName() == name {
+				return uint64(v.GetNumber()), true
+			}
+		}
+		return 0, false
+	}
+	if enum, ok := pl.descEnums[typeName]; ok {
+		return lookup(enum)
+	}
+	// 后缀匹配（与 findMessageDesc 一致）
+	for k, enum := range pl.descEnums {
+		if strings.HasSuffix(k, "."+typeName) {
+			return lookup(enum)
+		}
+	}
+	return 0, false
 }
 
 func isMessageType(t string) bool {

@@ -74,7 +74,7 @@ func SendProxyRequest(c *gin.Context) {
 
 	// REST/HTTP 分支：前端 ApiTest 发送普通接口
 	if req.URL != "" {
-		// P1-3：SSRF 防护，禁止将请求转发至内网/私网地址
+		// SSRF 防护，禁止将请求转发至内网/私网地址
 		if err := middleware.ValidateURL(req.URL); err != nil {
 			respondError(c, http.StatusBadRequest, err, "目标地址不合法或位于内网,已拒绝")
 			return
@@ -85,7 +85,7 @@ func SendProxyRequest(c *gin.Context) {
 	}
 
 	// gRPC 分支：沿用原协议录制逻辑
-	// P1-3：SSRF 防护，禁止将请求转发至内网/私网地址
+	// SSRF 防护，禁止将请求转发至内网/私网地址
 	if err := validateProxyTarget(req.Target); err != nil {
 		respondError(c, http.StatusBadRequest, err, "目标地址不合法或位于内网,已拒绝")
 		return
@@ -113,7 +113,7 @@ func ReplayProxy(c *gin.Context) {
 		return
 	}
 
-	// P1-3：SSRF 防护，禁止将请求转发至内网/私网地址
+	// SSRF 防护，禁止将请求转发至内网/私网地址
 	if err := validateProxyTarget(req.Target); err != nil {
 		respondError(c, http.StatusBadRequest, err, "目标地址不合法或位于内网,已拒绝")
 		return

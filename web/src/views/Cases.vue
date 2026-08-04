@@ -105,6 +105,7 @@ interface EditingCase {
   assignee: string
   status: string
   tags: string
+  scriptId?: string
 }
 
 // ==================== Derived ====================

@@ -1,1 +1,0 @@
-import{I as e}from"./index-BOsbMlOz.js";const t=()=>e.get("/devices"),n=()=>e.get("/devices/scan"),a=s=>e.post(`/devices/${encodeURIComponent(s)}/screenshot`),i=(s,c)=>e.post(`/devices/${encodeURIComponent(s)}/exec`,{command:c});export{i as e,t as g,n as s,a as t};

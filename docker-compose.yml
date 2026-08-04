@@ -18,13 +18,19 @@ services:
       - PORT=3000
       - DB_PATH=/app/data/qatest.db
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required, set it in .env or environment}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD is required, set it in .env or environment}
       - JWT_EXPIRES_IN=24h
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      # 反代信任网段：默认不信任任何代理（防伪造 XFF 绕过限流）；反代场景填写代理网段 CIDR
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      # 脚本执行引擎开关：0 关闭（拒绝创建脚本执行任务），默认 1 开启
+      - EXECUTOR_ENABLED=${EXECUTOR_ENABLED:-1}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - PROXY_TARGET=
       - PROTO_DIR=/app/protos
       - LOG_DIR=/app/logs
-      - QATEST_USERS=${QATEST_USERS:-[{"username":"admin","passwordHash":"$2b$10$placeholder_hash","name":"管理员","role":"admin"}]}
+      # 额外用户（可选，JSON 数组）；admin 口令由 ADMIN_PASSWORD 管理
+      - QATEST_USERS=${QATEST_USERS:-}
       - GIN_MODE=release
 
 volumes:

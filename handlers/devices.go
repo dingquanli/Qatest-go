@@ -78,7 +78,7 @@ func ExecDeviceCommand(c *gin.Context) {
 }
 
 // InstallAPK 安装 APK
-// P2-5 修复：校验 APK 路径，防止路径穿越
+// 校验 APK 路径，防止路径穿越
 func InstallAPK(c *gin.Context) {
 	serial := c.Param("serial")
 
@@ -90,7 +90,7 @@ func InstallAPK(c *gin.Context) {
 		return
 	}
 
-	// P2-5 修复：校验 APK 路径安全
+	// 校验 APK 路径安全
 	apkPath := filepath.Clean(req.APKPath)
 	if strings.Contains(apkPath, "..") {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "APK 路径不合法"})

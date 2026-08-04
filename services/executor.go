@@ -1,6 +1,6 @@
 package services
 
-// 包级安全说明（P1-6 最小兜底 / 服务端代码执行设计风险）：
+// 包级安全说明（服务端代码执行设计风险）：
 // 本包中的 executePython / executeJS 会先把用户提交的 .py / .js 代码写成临时文件，
 // 再用 python / node 在【宿主机】上直接运行，具备任意代码执行（RCE）能力，属高危能力。
 // 完整修复需要沙箱 / 容器隔离（本次不做）。此处仅做可见性兜底：
@@ -24,7 +24,7 @@ import (
 	"qatest/database"
 )
 
-// init 在进程启动时打印一次高危能力警告（P1-6 可见性兜底）。
+// init 在进程启动时打印一次高危能力警告。
 func init() {
 	log.Println("[WARN] 脚本执行功能会在宿主机直接运行用户提交的代码，属高危能力；请确保服务仅对受信任用户开放，并尽量在隔离环境/容器中运行")
 	log.Println("[执行器] 脚本执行引擎就绪")
@@ -84,7 +84,7 @@ var (
 )
 
 // SetLogBroadcastFunc 注册日志广播函数（由 handlers 包调用）
-// P0-3 修复：services 包不能导入 handlers（循环依赖），通过回调注入
+// services 包不能导入 handlers（循环依赖），通过回调注入
 func SetLogBroadcastFunc(fn BroadcastFunc) {
 	logBroadcastMu.Lock()
 	defer logBroadcastMu.Unlock()
@@ -102,13 +102,13 @@ func broadcastLog(data []byte) {
 }
 
 // Start 启动执行
-// P0-3 修复：同时启动 LogChan 消费者 goroutine，将日志通过 BroadcastWS 推送到前端
+// 同时启动 LogChan 消费者 goroutine，将日志通过 BroadcastWS 推送到前端
 func (em *ExecutorManager) Start(task *ExecutionTask) {
 	em.mu.Lock()
 	em.tasks[task.ID] = task
 	em.mu.Unlock()
 
-	// P0-3: 启动日志消费者，将 LogChan 中的日志通过 WS 广播给前端
+	// 启动日志消费者，将 LogChan 中的日志通过 WS 广播给前端
 	go em.consumeLogs(task)
 
 	// 执行完成后，若调用方注入 OnDone 回调（如计划执行引擎），读取最终状态并通知。
@@ -125,7 +125,7 @@ func (em *ExecutorManager) Start(task *ExecutionTask) {
 }
 
 // consumeLogs 消费任务日志通道并通过 BroadcastWS 推送到前端 WebSocket
-// P0-3 修复：之前 LogChan 无人消费，前端收不到实时日志
+// 之前 LogChan 无人消费，前端收不到实时日志
 func (em *ExecutorManager) consumeLogs(task *ExecutionTask) {
 	for entry := range task.LogChan {
 		data, err := json.Marshal(map[string]interface{}{
@@ -474,7 +474,7 @@ func (em *ExecutorManager) executeJS(task *ExecutionTask, tmpDir string) {
 	}
 	deviceSerial := task.DeviceSerial
 
-	// P0-4 修复：从配置获取 JWT，不再硬编码空字符串导致 401
+	// 从配置获取 JWT，不再硬编码空字符串导致 401
 	jsToken := config.JSAuthToken
 	if jsToken == "" {
 		// 未配置 JS_AUTH_TOKEN，输出警告但继续执行（adb 调用会返回 401）
@@ -486,7 +486,7 @@ func (em *ExecutorManager) executeJS(task *ExecutionTask, tmpDir string) {
 // Qatest JS 运行环境
 const DEVICE_SERIAL = %q;
 const PORT = %q;
-const TOKEN = %q; // P0-4: 从环境变量 JS_AUTH_TOKEN 获取
+const TOKEN = %q; // 从环境变量 JS_AUTH_TOKEN 获取
 
 const log = (msg) => console.log('[LOG]', msg);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -575,7 +575,7 @@ const adb = async (cmd) => {
 }
 
 // emitLog 发送日志到 LogChan
-// P0-3 修复：日志通过 LogChan → consumeLogs → BroadcastWS 推送到前端
+// 日志通过 LogChan → consumeLogs → BroadcastWS 推送到前端
 func (task *ExecutionTask) emitLog(level, message string) {
 	entry := LogEntry{
 		Time:    time.Now().Format(time.RFC3339),

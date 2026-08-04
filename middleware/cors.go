@@ -50,7 +50,7 @@ func CORS() gin.HandlerFunc {
 			c.Header("Access-Control-Max-Age", "86400")
 		}
 
-		// P1-11 修复：添加安全响应头
+		// 添加安全响应头
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("X-XSS-Protection", "1; mode=block")

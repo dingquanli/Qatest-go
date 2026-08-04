@@ -84,6 +84,9 @@ func (rl *rateLimiter) allow(ip string) bool {
 }
 
 // RateLimit 速率限制中间件（maxRequests次/60秒/IP，见上方常量）
+// IP 来源：gin 的 c.ClientIP()。main.go 已按 TRUSTED_PROXIES 配置可信代理网段；
+// 默认（未配置）时不信任任何代理，直接取直连连接 IP —— 攻击者无法用
+// X-Forwarded-For 伪造身份绕过限流（代价是反代场景下按代理 IP 计数，需配置 TRUSTED_PROXIES 还原）。
 func RateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()

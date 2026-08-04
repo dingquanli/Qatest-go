@@ -164,7 +164,7 @@ func GetLogFileContent(c *gin.Context) {
 		return
 	}
 
-	// 白名单校验：仅允许读取日志目录中真实存在的文件（P2-3 收窄可读范围）。
+	// 白名单校验：仅允许读取日志目录中真实存在的文件（收窄可读范围）。
 	allowed, err := listLogFiles()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{Success: false, Error: "读取日志目录失败"})

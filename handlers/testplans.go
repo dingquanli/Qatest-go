@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"qatest/config"
 	"qatest/database"
 	"qatest/models"
 	"qatest/services"
@@ -130,7 +131,7 @@ func CreatePlanExecution(c *gin.Context) {
 		return
 	}
 
-	// 若携带逐用例明细，自动聚合通过/失败/总数（P1-2：登记执行结果）
+	// 若携带逐用例明细，自动聚合通过/失败/总数（登记执行结果）
 	if e.CasesDetail != "" {
 		var details []struct {
 			CaseID   string `json:"caseId"`
@@ -295,8 +296,13 @@ func ExecuteTestPlan(c *gin.Context) {
 		}
 
 		// auto 模式：若用例关联脚本，派发脚本执行任务
+		// RCE 熔断：EXECUTOR_ENABLED=0 时跳过脚本派发（用例保持 pending，不阻断整体计划）
 		if mode == "auto" && scriptID != "" {
-			dispatchCaseScript(c, ceID, planExecID, scriptID, caseName, req.DeviceSerial, req.Executor)
+			if !config.AppConfig.ExecutorEnabled {
+				log.Printf("[WARN] 脚本执行引擎已禁用（EXECUTOR_ENABLED=0），跳过用例 %s 的脚本派发", cid)
+			} else {
+				dispatchCaseScript(c, ceID, planExecID, scriptID, caseName, req.DeviceSerial, req.Executor)
+			}
 		}
 
 		caseExecs = append(caseExecs, ce)
@@ -304,7 +310,7 @@ func ExecuteTestPlan(c *gin.Context) {
 
 	// 将逐用例明细写回 plan_executions（初始全 pending）
 	detail := buildPlanDetail(caseExecs)
-	if err := database.DB.Exec("UPDATE plan_executions SET cases_detail=? WHERE id=?", detail, planExecID); err != nil {
+	if _, err := database.DB.Exec("UPDATE plan_executions SET cases_detail=? WHERE id=?", detail, planExecID); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "保存计划执行明细失败")
 		return
 	}

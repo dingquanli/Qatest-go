@@ -164,7 +164,7 @@ func RegisterRoutes(r *gin.Engine) {
 	auth.GET("/config/jira/status", handlers.GetJiraStatus)
 	// SDK 上报接收（各引擎 SDK 主动上报，携带 Bearer token，服务端校验 report_token）
 	api.POST("/qa/report", handlers.ReceiveReport)
-	// SDK 上报查询（供「SDK 上报」查看页，P1-2）
+	// SDK 上报查询（供「SDK 上报」查看页）
 	auth.GET("/qa/reports", handlers.GetQaReports)
 
 	// 表格视图
@@ -191,7 +191,7 @@ func RegisterRoutes(r *gin.Engine) {
 
 	// WebSocket 端点
 	auth.GET("/ws", handlers.HandleWebSocket)                 // 执行日志（需 JWT）
-	auth.GET("/proxy-ws", handlers.HandleProxyWebSocket)     // 协议录制（需 JWT，P1-5 修复未鉴权）
+	auth.GET("/proxy-ws", handlers.HandleProxyWebSocket)     // 协议录制（需 JWT）
 
 	// 静态文件 + SPA fallback
 	r.Static("/assets", "./static/assets")
