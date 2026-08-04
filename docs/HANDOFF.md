@@ -335,3 +335,16 @@ docker compose up -d --build
 > - 部署在反代后：必须配置 `TRUSTED_PROXIES=代理网段CIDR`，否则限流按代理 IP 聚合计数。
 > - 生产不需要脚本执行能力：建议 `EXECUTOR_ENABLED=0`（RCE 高危的部署侧熔断）。
 > - `static/` 构建时 WorkBuddy 环境的安全删除保护会拦截 vite 清空旧产物，需先分批清空 `static/assets` 再构建（常规 CI/本地终端无此限制）。
+
+### 14.1 前端交互体验改造（2026-08-04，提交 fba589f 之后追加）
+
+按用户反馈「新建思维导图 / 新建表格参考 WPS 与 XMind」，对两个视图做交互改造，`vue-tsc` 与 `vite build` 通过：
+
+| 页面 | 改造内容 |
+|---|---|
+| `TableCases.vue`（表格，仿 WPS 表格） | 行号列；单元格点击聚焦 + 键盘导航（方向键 / Enter 下移 / Tab 右移，仿电子表格）；选中行高亮；底部「新行」输入条（输入即保存新建，WPS 式）；支持从 Excel/WPS 粘贴多行（Tab 分列 / 换行分行）批量新建用例 |
+| `XmindCases.vue`（思维导图，仿 XMind 逻辑图） | 贝塞尔曲线连线（原直角折线）；节点点击选中高亮 + 双击/F2 就地编辑名称（Enter 保存 / Esc 取消 / 失焦保存）；键盘快捷键（Tab 新建子节点、Enter 新建同级、Delete 删除、方向键导航、← 返回父层）；Ctrl+滚轮缩放 + 空白拖拽平移 + 工具栏（放大/缩小/适应窗口/重置）；画布点阵背景 |
+| `components/ui/Input.vue` | 新增 `defineExpose({ focus, select })`，供就地编辑与表格键盘导航聚焦输入框 |
+
+> 备注：后端 `UpdateXmindCase`/`UpdateTableCase` 为**全量更新**，前端就地重命名必须携带原对象全部字段（含 `expected`/`sortOrder`），代码中已用 `{ ...c, name }` 处理，勿改成仅传 name。
+> 交互契约：思维导图三级结构（根→模块→用例），Tab 在模块下建用例、根下建模块；用例层无子级（Tab 忽略）。

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Search, Plus, Trash2, FileSpreadsheet, AlertCircle, FolderPlus, X, PenLine, ListChecks,
+  ClipboardPaste, Keyboard,
 } from 'lucide-vue-next'
 import Card from '@/components/ui/Card.vue'
 import CardContent from '@/components/ui/CardContent.vue'
@@ -36,9 +37,34 @@ const error = ref<string | null>(null)
 const showNewModule = ref(false)
 const newModuleName = ref('')
 
-// 抽屉编辑器状态
+// 抽屉编辑器状态（用于编辑步骤等详情）
 const showDrawer = ref(false)
 const editingCase = ref<TableCase | null>(null)
+
+// ===== WPS 风格交互状态 =====
+// 列定义（含电子表格列头，方便键盘导航）
+const COLUMNS = [
+  { key: 'name', label: '名称' },
+  { key: 'moduleId', label: '模块' },
+  { key: 'priority', label: '优先级' },
+  { key: 'type', label: '类型' },
+  { key: 'assignee', label: '负责人' },
+  { key: 'steps', label: '步骤' },
+  { key: 'updatedAt', label: '更新时间' },
+] as const
+type ColKey = (typeof COLUMNS)[number]['key']
+
+// 当前激活单元格（行下标 + 列 key）；-1 表示无
+const activeRow = ref(-1)
+const activeCol = ref<ColKey | null>(null)
+// 新增行草稿（WPS 式：底部一行直接输入即新建）
+const draft = ref({ name: '', moduleId: '', priority: 'P1' as string, assignee: '', type: 'functional' as string })
+const savingDraft = ref(false)
+
+// 所有可聚焦单元格的引用（键盘导航需要）
+// Input 组件实例（已 expose focus/select）或原生 select 元素
+const cellEls = ref<Record<string, { focus: () => void; select?: () => void } | null>>({})
+function cellKey(i: number, col: ColKey): string { return `${i}:${col}` }
 
 function moduleName(id: string): string {
   return modules.value.find((m) => m.id === id)?.name || '未分类'
@@ -109,7 +135,7 @@ async function handleDeleteModule(id: string): Promise<void> {
   }
 }
 
-// ---- 抽屉：新建 / 编辑 ----
+// ---- 抽屉：新建 / 编辑（详情：步骤、前置条件等）----
 function openCreate(): void {
   editingCase.value = null
   showDrawer.value = true
@@ -158,6 +184,151 @@ async function handleDeleteCase(id: string): Promise<void> {
     ElMessage.error(e.message || '删除失败')
   }
 }
+
+// ==================== WPS 式交互逻辑 ====================
+
+/** 点击单元格：选中并聚焦 */
+function selectCell(i: number, col: ColKey): void {
+  activeRow.value = i
+  activeCol.value = col
+  const el = cellEls.value[cellKey(i, col)]
+  if (el) {
+    el.focus()
+    el.select?.()
+  }
+}
+
+/** 键盘导航：方向键移动，Enter 下移，Tab 右移（仿电子表格） */
+function onCellKeydown(e: KeyboardEvent, i: number, col: ColKey): void {
+  const cols = COLUMNS
+  let row = i
+  let c = cols.findIndex((x) => x.key === col)
+  const total = filtered.value.length
+
+  const move = (r: number, cc: number): boolean => {
+    if (cc < 0) { c = 0; return false }
+    if (cc >= cols.length) { c = cols.length - 1; return false }
+    if (r < 0) { row = 0; return false }
+    if (r >= total) { row = total - 1; return false }
+    row = r
+    c = cc
+    return true
+  }
+
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault()
+      move(row + 1, c) || move(row, c)
+      break
+    case 'ArrowUp':
+      e.preventDefault()
+      move(row - 1, c) || move(row, c)
+      break
+    case 'ArrowLeft':
+      e.preventDefault()
+      if (c > 0) c--
+      else if (row > 0) { row--; c = cols.length - 1 }
+      break
+    case 'ArrowRight':
+      e.preventDefault()
+      if (c < cols.length - 1) c++
+      else if (row < total - 1) { row++; c = 0 }
+      break
+    case 'Enter':
+      e.preventDefault()
+      move(row + 1, c) || move(row, c)
+      break
+    case 'Tab':
+      e.preventDefault()
+      if (e.shiftKey) {
+        if (c > 0) c--
+        else if (row > 0) { row--; c = cols.length - 1 }
+      } else {
+        if (c < cols.length - 1) c++
+        else if (row < total - 1) { row++; c = 0 }
+      }
+      break
+    default:
+      return // 不消费其他按键（保留输入）
+  }
+  activeRow.value = row
+  activeCol.value = cols[c].key
+  nextTick(() => {
+    const el = cellEls.value[cellKey(row, cols[c].key)]
+    el?.focus()
+    el?.select?.()
+  })
+}
+
+/** 底部新增行：Enter 或点击「添加行」保存草稿（WPS 式，输入即新建） */
+async function saveDraft(): Promise<void> {
+  if (savingDraft.value) return
+  const name = draft.value.name.trim()
+  if (!name) { ElMessage.warning('请输入用例名称'); return }
+  savingDraft.value = true
+  try {
+    await tableApi.createTableCase({
+      name,
+      moduleId: draft.value.moduleId || selectedModule.value || '',
+      priority: draft.value.priority as TableCase['priority'],
+      type: draft.value.type,
+      assignee: draft.value.assignee,
+      precondition: '',
+      steps: '[]',
+      status: 'draft',
+      tags: '[]',
+    })
+    draft.value = { name: '', moduleId: '', priority: 'P1', assignee: '', type: 'functional' }
+    ElMessage.success('用例已添加')
+    await loadAll()
+    // 聚焦到新行首列（最后一行）
+    await nextTick()
+    if (filtered.value.length > 0) selectCell(filtered.value.length - 1, 'name')
+  } catch (e: any) {
+    ElMessage.error(e.message || '添加失败')
+  } finally {
+    savingDraft.value = false
+  }
+}
+
+/** 从 Excel / WPS 剪贴板粘贴多行：按 Tab 分列、按换行分行，批量新建用例 */
+async function handleDraftPaste(e: ClipboardEvent): Promise<void> {
+  const text = (e.clipboardData?.getData('text') || '').trim()
+  if (!text) return
+  // 仅当粘贴内容含多行或多列时走批量逻辑；单段文本走普通输入
+  if (!text.includes('\n') && !text.includes('\t')) return
+  e.preventDefault()
+  const rows = text.split(/\r?\n/).filter((r) => r.trim() !== '')
+  if (rows.length === 0) return
+  savingDraft.value = true
+  let ok = 0
+  try {
+    for (const row of rows) {
+      const cells = row.split('\t')
+      const name = (cells[0] || '').trim()
+      if (!name) continue
+      await tableApi.createTableCase({
+        name,
+        moduleId: draft.value.moduleId || selectedModule.value || '',
+        priority: (cells[2] as TableCase['priority']) || draft.value.priority,
+        type: draft.value.type,
+        assignee: (cells[1] || draft.value.assignee).trim(),
+        precondition: '',
+        steps: '[]',
+        status: 'draft',
+        tags: '[]',
+      })
+      ok++
+    }
+    draft.value = { name: '', moduleId: '', priority: 'P1', assignee: '', type: 'functional' }
+    ElMessage.success(`已批量新建 ${ok} 条用例（支持从 Excel/WPS 直接粘贴多行）`)
+    await loadAll()
+  } catch (err: any) {
+    ElMessage.error(err.message || '批量新建失败')
+  } finally {
+    savingDraft.value = false
+  }
+}
 </script>
 
 <template>
@@ -184,7 +355,7 @@ async function handleDeleteCase(id: string): Promise<void> {
             <div v-for="m in modules" :key="m.id" class="group flex items-center">
               <button
                 @click="selectedModule = m.id"
-                :class="`flex-1 text-left px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                :class="`flex-1 text-left px-2 py-1.5 rounded-lg text-xs transition-colors truncate ${
                   selectedModule === m.id ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-accent'
                 }`"
               >
@@ -213,6 +384,9 @@ async function handleDeleteCase(id: string): Promise<void> {
                 表格用例
                 <span class="text-muted-foreground font-normal ml-1">({{ filtered.length }})</span>
               </h3>
+              <span class="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full bg-muted/60 text-[10px] text-muted-foreground">
+                <Keyboard class="w-3 h-3" /> 方向键/Enter/Tab 导航
+              </span>
             </div>
             <div class="flex items-center gap-2">
               <div class="relative">
@@ -233,6 +407,7 @@ async function handleDeleteCase(id: string): Promise<void> {
             <table class="w-full text-sm border-collapse">
               <thead>
                 <tr class="bg-muted/50 text-left text-xs text-muted-foreground sticky top-0 z-10">
+                  <th class="w-9 px-0 py-2 font-medium border-b border-r text-center select-none">#</th>
                   <th class="px-2 py-2 font-medium border-b border-r">名称</th>
                   <th class="px-2 py-2 font-medium border-b border-r w-32">模块</th>
                   <th class="px-2 py-2 font-medium border-b border-r w-24">优先级</th>
@@ -244,18 +419,48 @@ async function handleDeleteCase(id: string): Promise<void> {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="c in filtered" :key="c.id" class="hover:bg-accent/30 transition-colors">
-                  <td class="px-1 py-1 border-b border-r align-middle">
-                    <Input v-model="c.name" class="h-8 text-xs border-transparent bg-transparent focus:bg-background" @blur="saveInline(c)" />
+                <tr
+                  v-for="(c, i) in filtered"
+                  :key="c.id"
+                  class="transition-colors"
+                  :class="i === activeRow ? 'bg-primary/5' : 'hover:bg-accent/30'"
+                >
+                  <!-- 行号列（WPS 风格） -->
+                  <td class="px-0 py-1 border-b border-r text-center align-middle select-none bg-muted/30 text-[10px] text-muted-foreground">
+                    {{ i + 1 }}
                   </td>
                   <td class="px-1 py-1 border-b border-r align-middle">
-                    <select :value="c.moduleId" @change="c.moduleId = ($event.target as HTMLSelectElement).value; saveInline(c)" class="w-full h-8 rounded-md border border-transparent bg-transparent px-1 text-xs outline-none focus:bg-background focus:border-input">
+                    <Input
+                      :ref="(el) => (cellEls[cellKey(i, 'name')] = el as never)"
+                      v-model="c.name"
+                      class="h-8 text-xs border-transparent bg-transparent focus:bg-background"
+                      @blur="saveInline(c)"
+                      @click.stop="selectCell(i, 'name')"
+                      @keydown="onCellKeydown($event, i, 'name')"
+                    />
+                  </td>
+                  <td class="px-1 py-1 border-b border-r align-middle">
+                    <select
+                      :ref="(el) => (cellEls[cellKey(i, 'moduleId')] = el as never)"
+                      :value="c.moduleId"
+                      @change="c.moduleId = ($event.target as HTMLSelectElement).value; saveInline(c)"
+                      class="w-full h-8 rounded-md border border-transparent bg-transparent px-1 text-xs outline-none focus:bg-background focus:border-input"
+                      @click.stop="selectCell(i, 'moduleId')"
+                      @keydown="onCellKeydown($event, i, 'moduleId')"
+                    >
                       <option value="">未分类</option>
                       <option v-for="m in modules" :key="m.id" :value="m.id">{{ m.name }}</option>
                     </select>
                   </td>
                   <td class="px-1 py-1 border-b border-r align-middle">
-                    <select v-model="c.priority" @change="saveInline(c)" class="w-full h-8 rounded-md border border-transparent bg-transparent px-1 text-xs outline-none focus:bg-background focus:border-input">
+                    <select
+                      :ref="(el) => (cellEls[cellKey(i, 'priority')] = el as never)"
+                      v-model="c.priority"
+                      @change="saveInline(c)"
+                      class="w-full h-8 rounded-md border border-transparent bg-transparent px-1 text-xs outline-none focus:bg-background focus:border-input"
+                      @click.stop="selectCell(i, 'priority')"
+                      @keydown="onCellKeydown($event, i, 'priority')"
+                    >
                       <option value="P0">P0</option>
                       <option value="P1">P1</option>
                       <option value="P2">P2</option>
@@ -264,7 +469,14 @@ async function handleDeleteCase(id: string): Promise<void> {
                   </td>
                   <td class="px-2 py-1 border-b border-r align-middle text-xs text-muted-foreground">{{ TYPE_LABELS[c.type] || c.type || '-' }}</td>
                   <td class="px-1 py-1 border-b border-r align-middle">
-                    <Input v-model="c.assignee" class="h-8 text-xs border-transparent bg-transparent focus:bg-background" @blur="saveInline(c)" />
+                    <Input
+                      :ref="(el) => (cellEls[cellKey(i, 'assignee')] = el as never)"
+                      v-model="c.assignee"
+                      class="h-8 text-xs border-transparent bg-transparent focus:bg-background"
+                      @blur="saveInline(c)"
+                      @click.stop="selectCell(i, 'assignee')"
+                      @keydown="onCellKeydown($event, i, 'assignee')"
+                    />
                   </td>
                   <td class="px-2 py-1 border-b border-r text-center align-middle">
                     <button
@@ -291,8 +503,41 @@ async function handleDeleteCase(id: string): Promise<void> {
               </tbody>
             </table>
             <div v-if="!loading && filtered.length === 0" class="text-center py-12 text-sm text-muted-foreground">
-              {{ search ? '无匹配用例' : '暂无数据，点击右上角「新建用例」添加' }}
+              {{ search ? '无匹配用例' : '暂无数据，可在下方直接输入新建' }}
             </div>
+          </div>
+
+          <!-- 底部新增行（WPS 风格：输入即新建） -->
+          <div class="mt-3 border rounded-lg bg-muted/20 px-3 py-2 flex items-end gap-2">
+            <div class="flex items-center gap-1 text-xs text-muted-foreground shrink-0 pb-1.5">
+              <Plus class="w-3.5 h-3.5" />
+              <span>新行</span>
+            </div>
+            <Input
+              v-model="draft.name"
+              placeholder="用例名称，Enter 保存（支持从 Excel/WPS 整行粘贴批量新建）"
+              class="flex-1 h-8 text-xs"
+              @keydown.enter="saveDraft"
+              @paste="handleDraftPaste"
+            />
+            <select v-model="draft.moduleId" class="h-8 rounded-md border bg-background px-1 text-xs w-32 outline-none focus:border-input">
+              <option value="">默认模块</option>
+              <option v-for="m in modules" :key="m.id" :value="m.id">{{ m.name }}</option>
+            </select>
+            <select v-model="draft.priority" class="h-8 rounded-md border bg-background px-1 text-xs w-20 outline-none focus:border-input">
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+              <option value="P3">P3</option>
+            </select>
+            <Input v-model="draft.assignee" placeholder="负责人" class="h-8 text-xs w-24" @keydown.enter="saveDraft" />
+            <Button size="sm" class="h-8 rounded-lg text-xs gap-1.5 shrink-0" :disabled="savingDraft" @click="saveDraft">
+              <Plus class="w-3 h-3" /> 添加
+            </Button>
+          </div>
+          <div class="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground">
+            <ClipboardPaste class="w-3 h-3" />
+            提示：从 Excel / WPS 复制多行（每行一列用 Tab 分隔）粘贴到「新行」输入框，可一次新建多条用例
           </div>
         </CardContent>
       </Card>
