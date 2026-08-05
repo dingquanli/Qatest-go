@@ -26,6 +26,9 @@ ProxyLogs/
 /dist
 node_modules/
 
+# Vite 构建临时文件（构建时生成，勿入库）
+web/*.timestamp-*
+
 # 运行日志
 *.log
 
