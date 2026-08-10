@@ -13,6 +13,10 @@ export const updateXmindCase = (id: string, data: Partial<XmindCase>): Promise<X
 export const deleteXmindCase = (id: string): Promise<{ message: string }> =>
   request.delete<{ message: string }>(`/xmind-cases/${encodeURIComponent(id)}`)
 
+/** 整体替换（撤销/重做：客户端快照全量写回，保留原 id） */
+export const replaceXmindCases = (list: XmindCase[]): Promise<XmindCase[]> =>
+  request.put<XmindCase[]>('/xmind-cases', list)
+
 export const getXmindModules = (): Promise<XmindModule[]> =>
   request.get<XmindModule[]>('/xmind-modules')
 

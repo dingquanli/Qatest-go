@@ -430,20 +430,55 @@ export interface XmindCase {
   type: string
   precondition: string
   steps: string
+  expected: string
   assignee: string
   status: string
   tags: string
+  collapsed: boolean // 是否折叠子树（基础功能：折叠/展开）
+  // 行业标准测试业务字段（完整版补齐）
+  code: string // 用例编号（人工可读，如 TC-LOGIN-001）
+  testData: string // 输入数据
+  actualResult: string // 实际结果（执行阶段填写）
+  defectId: string // 缺陷编号（关联缺陷单）
+  remark: string // 备注/摘要
+  env: string // 测试环境
+  estimate: string // 预计工时
   createdAt: string
   updatedAt: string
 }
 
-/** 自由电子表格（纯文本网格，cells 为二维字符串数组） */
+/** 自由电子表格：纯文本内容 cells + 基础格式层（与文本解耦） */
 export interface Spreadsheet {
   id: string
   name: string
-  cells: string[][] // 二维字符串数组
+  cells: string // 存储为 JSON 字符串（后端线格式）；前端读取后解析为二维数组
+  formats?: Record<string, CellFormat> // "r,c" -> 单元格格式
+  colWidths?: Record<number, number> // 列号 -> 像素宽
+  rowHeights?: Record<number, number> // 行号 -> 像素高
+  merges?: MergeRange[] // 合并区域
   createdAt: string
   updatedAt: string
+}
+
+/** 单元格基础格式（WPS 表格基础功能子集） */
+export interface CellFormat {
+  bold?: boolean
+  italic?: boolean
+  underline?: boolean
+  align?: 'left' | 'center' | 'right'
+  valign?: 'top' | 'middle' | 'bottom'
+  wrap?: boolean
+  border?: boolean
+  fill?: string // 十六进制颜色，如 #FFF3BF
+  color?: string // 字体颜色
+}
+
+/** 合并区域：左上角 (r,c)，跨 rs 行 cs 列 */
+export interface MergeRange {
+  r: number
+  c: number
+  rs: number
+  cs: number
 }
 
 export interface XmindModule {

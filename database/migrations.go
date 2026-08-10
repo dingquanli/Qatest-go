@@ -215,6 +215,7 @@ func RunMigrations() error {
 			module_id TEXT NOT NULL DEFAULT '',
 			parent_id TEXT NOT NULL DEFAULT '',
 			name TEXT NOT NULL DEFAULT '',
+			collapsed INTEGER NOT NULL DEFAULT 0,
 			priority TEXT NOT NULL DEFAULT 'P2',
 			type TEXT NOT NULL DEFAULT 'functional',
 			precondition TEXT NOT NULL DEFAULT '',
@@ -279,6 +280,10 @@ func RunMigrations() error {
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL DEFAULT '工作表',
 			cells TEXT NOT NULL DEFAULT '[]',
+			formats TEXT NOT NULL DEFAULT '{}',
+			col_widths TEXT NOT NULL DEFAULT '{}',
+			row_heights TEXT NOT NULL DEFAULT '{}',
+			merges TEXT NOT NULL DEFAULT '[]',
 			created_at TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT ''
 		)`,
@@ -336,11 +341,20 @@ func RunColumnMigrations() error {
 		{"table_cases", "assignee", "TEXT NOT NULL DEFAULT ''"},
 		{"table_cases", "status", "TEXT NOT NULL DEFAULT 'draft'"},
 		{"xmind_cases", "parent_id", "TEXT NOT NULL DEFAULT ''"},
+		{"xmind_cases", "collapsed", "INTEGER NOT NULL DEFAULT 0"},
 		{"xmind_cases", "priority", "TEXT NOT NULL DEFAULT 'P2'"},
 		{"xmind_cases", "type", "TEXT NOT NULL DEFAULT 'functional'"},
 		{"xmind_cases", "precondition", "TEXT NOT NULL DEFAULT ''"},
 		{"xmind_cases", "assignee", "TEXT NOT NULL DEFAULT ''"},
 		{"xmind_cases", "status", "TEXT NOT NULL DEFAULT 'draft'"},
+		// XMind 视图用例：完整版补齐行业标准业务字段
+		{"xmind_cases", "code", "TEXT NOT NULL DEFAULT ''"},
+		{"xmind_cases", "test_data", "TEXT NOT NULL DEFAULT ''"},
+		{"xmind_cases", "actual_result", "TEXT NOT NULL DEFAULT ''"},
+		{"xmind_cases", "defect_id", "TEXT NOT NULL DEFAULT ''"},
+		{"xmind_cases", "remark", "TEXT NOT NULL DEFAULT ''"},
+		{"xmind_cases", "env", "TEXT NOT NULL DEFAULT ''"},
+		{"xmind_cases", "estimate", "TEXT NOT NULL DEFAULT ''"},
 		// 计划执行记录：补充执行人 / 完成时间 / 逐用例明细
 		{"plan_executions", "executed_by", "TEXT NOT NULL DEFAULT ''"},
 		{"plan_executions", "finished_at", "TEXT NOT NULL DEFAULT ''"},
@@ -359,6 +373,11 @@ func RunColumnMigrations() error {
 		{"case_executions", "plan_id", "TEXT NOT NULL DEFAULT ''"},
 		{"case_executions", "execution_id", "TEXT NOT NULL DEFAULT ''"},
 		{"test_cases", "script_id", "TEXT NOT NULL DEFAULT ''"},
+		// 自由电子表格：基础格式层（格式/列宽/行高/合并）
+		{"spreadsheets", "formats", "TEXT NOT NULL DEFAULT '{}'"},
+		{"spreadsheets", "col_widths", "TEXT NOT NULL DEFAULT '{}'"},
+		{"spreadsheets", "row_heights", "TEXT NOT NULL DEFAULT '{}'"},
+		{"spreadsheets", "merges", "TEXT NOT NULL DEFAULT '[]'"},
 	}
 	for _, c := range cols {
 		has, err := hasColumn(c.table, c.col)

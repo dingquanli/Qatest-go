@@ -14,9 +14,14 @@ import (
 
 // spreadsheetInput 用于解析创建/更新请求。cells 在前端契约中是二维数组（create 时直接传数组，
 // update 时走了 JSON.stringify 变成字符串），这里用 json.RawMessage 容错两种形态，再规范化为可存储的 JSON 字符串。
+// 格式层（formats/col_widths/row_heights/merges）同样用 RawMessage 容错对象/字符串，规范化为 JSON 字符串。
 type spreadsheetInput struct {
-	Name  string          `json:"name"`
-	Cells json.RawMessage `json:"cells"`
+	Name       string          `json:"name"`
+	Cells      json.RawMessage `json:"cells"`
+	Formats    json.RawMessage `json:"formats"`
+	ColWidths  json.RawMessage `json:"colWidths"`
+	RowHeights json.RawMessage `json:"rowHeights"`
+	Merges     json.RawMessage `json:"merges"`
 }
 
 // normalizeCells 将前端传入的 cells（JSON 字符串或二维数组）规范化为可存储的 JSON 字符串。
@@ -37,8 +42,24 @@ func normalizeCells(raw json.RawMessage) string {
 	return string(raw)
 }
 
+// normalizeJSON 将对象/数组形态的输入规范化为紧凑 JSON 字符串；空则回退 def。
+func normalizeJSON(raw json.RawMessage, def string) string {
+	if len(raw) == 0 {
+		return def
+	}
+	var probe interface{}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return def
+	}
+	b, err := json.Marshal(probe)
+	if err != nil {
+		return def
+	}
+	return string(b)
+}
+
 func GetSpreadsheets(c *gin.Context) {
-	rows, err := database.DB.Query("SELECT id, name, cells, created_at, updated_at FROM spreadsheets ORDER BY created_at")
+	rows, err := database.DB.Query("SELECT id, name, cells, formats, col_widths, row_heights, merges, created_at, updated_at FROM spreadsheets ORDER BY created_at")
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
@@ -47,7 +68,7 @@ func GetSpreadsheets(c *gin.Context) {
 	list := make([]models.Spreadsheet, 0)
 	for rows.Next() {
 		var s models.Spreadsheet
-		if err := rows.Scan(&s.ID, &s.Name, &s.Cells, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Cells, &s.Formats, &s.ColWidths, &s.RowHeights, &s.Merges, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
@@ -59,8 +80,8 @@ func GetSpreadsheets(c *gin.Context) {
 func GetSpreadsheet(c *gin.Context) {
 	id := c.Param("id")
 	var s models.Spreadsheet
-	err := database.DB.QueryRow("SELECT id, name, cells, created_at, updated_at FROM spreadsheets WHERE id = ?", id).
-		Scan(&s.ID, &s.Name, &s.Cells, &s.CreatedAt, &s.UpdatedAt)
+	err := database.DB.QueryRow("SELECT id, name, cells, formats, col_widths, row_heights, merges, created_at, updated_at FROM spreadsheets WHERE id = ?", id).
+		Scan(&s.ID, &s.Name, &s.Cells, &s.Formats, &s.ColWidths, &s.RowHeights, &s.Merges, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		respondError(c, http.StatusNotFound, err, "未找到该表")
 		return
@@ -75,17 +96,21 @@ func CreateSpreadsheet(c *gin.Context) {
 		return
 	}
 	s := models.Spreadsheet{
-		ID:        generateID("sh"),
-		Name:      in.Name,
-		Cells:     normalizeCells(in.Cells),
-		CreatedAt: models.NowStr(),
-		UpdatedAt: models.NowStr(),
+		ID:         generateID("sh"),
+		Name:       in.Name,
+		Cells:      normalizeCells(in.Cells),
+		Formats:    normalizeJSON(in.Formats, "{}"),
+		ColWidths:  normalizeJSON(in.ColWidths, "{}"),
+		RowHeights: normalizeJSON(in.RowHeights, "{}"),
+		Merges:     normalizeJSON(in.Merges, "[]"),
+		CreatedAt:  models.NowStr(),
+		UpdatedAt:  models.NowStr(),
 	}
 	if s.Name == "" {
 		s.Name = "工作表"
 	}
-	_, err := database.DB.Exec("INSERT INTO spreadsheets (id, name, cells, created_at, updated_at) VALUES (?,?,?,?,?)",
-		s.ID, s.Name, s.Cells, s.CreatedAt, s.UpdatedAt)
+	_, err := database.DB.Exec("INSERT INTO spreadsheets (id, name, cells, formats, col_widths, row_heights, merges, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+		s.ID, s.Name, s.Cells, s.Formats, s.ColWidths, s.RowHeights, s.Merges, s.CreatedAt, s.UpdatedAt)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
@@ -101,13 +126,17 @@ func UpdateSpreadsheet(c *gin.Context) {
 		return
 	}
 	s := models.Spreadsheet{
-		ID:        id,
-		Name:      in.Name,
-		Cells:     normalizeCells(in.Cells),
-		UpdatedAt: models.NowStr(),
+		ID:         id,
+		Name:       in.Name,
+		Cells:      normalizeCells(in.Cells),
+		Formats:    normalizeJSON(in.Formats, "{}"),
+		ColWidths:  normalizeJSON(in.ColWidths, "{}"),
+		RowHeights: normalizeJSON(in.RowHeights, "{}"),
+		Merges:     normalizeJSON(in.Merges, "[]"),
+		UpdatedAt:  models.NowStr(),
 	}
-	_, err := database.DB.Exec("UPDATE spreadsheets SET name=?, cells=?, updated_at=? WHERE id=?",
-		s.Name, s.Cells, s.UpdatedAt, id)
+	_, err := database.DB.Exec("UPDATE spreadsheets SET name=?, cells=?, formats=?, col_widths=?, row_heights=?, merges=?, updated_at=? WHERE id=?",
+		s.Name, s.Cells, s.Formats, s.ColWidths, s.RowHeights, s.Merges, s.UpdatedAt, id)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return

@@ -182,6 +182,7 @@ func RegisterRoutes(r *gin.Engine) {
 	// XMind 视图
 	auth.GET("/xmind-cases", handlers.GetXmindCases)
 	auth.POST("/xmind-cases", handlers.CreateXmindCase)
+	auth.PUT("/xmind-cases", handlers.ReplaceXmindCases)
 	auth.PUT("/xmind-cases/:id", handlers.UpdateXmindCase)
 	auth.DELETE("/xmind-cases/:id", handlers.DeleteXmindCase)
 

@@ -168,7 +168,7 @@ func DeleteTableModule(c *gin.Context) {
 
 func GetXmindCases(c *gin.Context) {
 	rows, err := database.DB.Query(
-		"SELECT id, name, module_id, parent_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at FROM xmind_cases ORDER BY sort_order LIMIT 500",
+		"SELECT id, name, module_id, parent_id, collapsed, priority, type, precondition, steps, expected, assignee, status, tags, code, test_data, actual_result, defect_id, remark, env, estimate, sort_order, created_at, updated_at FROM xmind_cases ORDER BY sort_order LIMIT 500",
 	)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
@@ -178,7 +178,7 @@ func GetXmindCases(c *gin.Context) {
 	cases := make([]models.XmindCase, 0)
 	for rows.Next() {
 		var x models.XmindCase
-		if err := rows.Scan(&x.ID, &x.Name, &x.ModuleID, &x.ParentID, &x.Priority, &x.Type, &x.Precondition, &x.Steps, &x.Expected, &x.Assignee, &x.Status, &x.Tags, &x.SortOrder, &x.CreatedAt, &x.UpdatedAt); err != nil {
+		if err := rows.Scan(&x.ID, &x.Name, &x.ModuleID, &x.ParentID, &x.Collapsed, &x.Priority, &x.Type, &x.Precondition, &x.Steps, &x.Expected, &x.Assignee, &x.Status, &x.Tags, &x.Code, &x.TestData, &x.ActualResult, &x.DefectId, &x.Remark, &x.Env, &x.Estimate, &x.SortOrder, &x.CreatedAt, &x.UpdatedAt); err != nil {
 			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
@@ -206,8 +206,8 @@ func CreateXmindCase(c *gin.Context) {
 		x.Status = "draft"
 	}
 	_, err := database.DB.Exec(
-		"INSERT INTO xmind_cases (id, name, module_id, parent_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-		x.ID, x.Name, x.ModuleID, x.ParentID, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.SortOrder, x.CreatedAt, x.UpdatedAt,
+		"INSERT INTO xmind_cases (id, name, module_id, parent_id, collapsed, priority, type, precondition, steps, expected, assignee, status, tags, code, test_data, actual_result, defect_id, remark, env, estimate, sort_order, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+		x.ID, x.Name, x.ModuleID, x.ParentID, x.Collapsed, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.Code, x.TestData, x.ActualResult, x.DefectId, x.Remark, x.Env, x.Estimate, x.SortOrder, x.CreatedAt, x.UpdatedAt,
 	)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
@@ -234,8 +234,8 @@ func UpdateXmindCase(c *gin.Context) {
 		x.Status = "draft"
 	}
 	_, err := database.DB.Exec(
-		"UPDATE xmind_cases SET name=?, module_id=?, parent_id=?, priority=?, type=?, precondition=?, steps=?, expected=?, assignee=?, status=?, tags=?, sort_order=?, updated_at=? WHERE id=?",
-		x.Name, x.ModuleID, x.ParentID, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.SortOrder, x.UpdatedAt, id,
+		"UPDATE xmind_cases SET name=?, module_id=?, parent_id=?, collapsed=?, priority=?, type=?, precondition=?, steps=?, expected=?, assignee=?, status=?, tags=?, code=?, test_data=?, actual_result=?, defect_id=?, remark=?, env=?, estimate=?, sort_order=?, updated_at=? WHERE id=?",
+		x.Name, x.ModuleID, x.ParentID, x.Collapsed, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.Code, x.TestData, x.ActualResult, x.DefectId, x.Remark, x.Env, x.Estimate, x.SortOrder, x.UpdatedAt, id,
 	)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
@@ -243,6 +243,61 @@ func UpdateXmindCase(c *gin.Context) {
 	}
 	x.ID = id
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: x})
+}
+
+// ReplaceXmindCases 整体替换（用于撤销/重做：先清空再按客户端快照全量写回，保留原 id）。
+func ReplaceXmindCases(c *gin.Context) {
+	var list []models.XmindCase
+	if err := c.ShouldBindJSON(&list); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误"})
+		return
+	}
+	if len(list) > 2000 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "节点数量超限"})
+		return
+	}
+	tx, err := database.DB.Begin()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
+		return
+	}
+	if _, err := tx.Exec("DELETE FROM xmind_cases"); err != nil {
+		tx.Rollback()
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
+		return
+	}
+	now := models.NowStr()
+	for _, x := range list {
+		if x.ID == "" {
+			x.ID = generateID("xc")
+		}
+		if x.Priority == "" {
+			x.Priority = "P2"
+		}
+		if x.Type == "" {
+			x.Type = "functional"
+		}
+		if x.Status == "" {
+			x.Status = "draft"
+		}
+		if x.CreatedAt == "" {
+			x.CreatedAt = now
+		}
+		x.UpdatedAt = now
+		if _, err := tx.Exec(
+			"INSERT INTO xmind_cases (id, name, module_id, parent_id, collapsed, priority, type, precondition, steps, expected, assignee, status, tags, code, test_data, actual_result, defect_id, remark, env, estimate, sort_order, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+			x.ID, x.Name, x.ModuleID, x.ParentID, x.Collapsed, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.Code, x.TestData, x.ActualResult, x.DefectId, x.Remark, x.Env, x.Estimate, x.SortOrder, x.CreatedAt, x.UpdatedAt,
+		); err != nil {
+			tx.Rollback()
+			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
+		return
+	}
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: list})
 }
 
 // deleteXmindNode 删除节点及其全部子孙节点（级联）
