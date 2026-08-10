@@ -209,10 +209,11 @@ func RunMigrations() error {
 			created_at TEXT NOT NULL DEFAULT ''
 		)`,
 
-		// 16. XMind 视图用例
+		// 16. XMind 视图用例（纯文本逻辑图）
 		`CREATE TABLE IF NOT EXISTS xmind_cases (
 			id TEXT PRIMARY KEY,
 			module_id TEXT NOT NULL DEFAULT '',
+			parent_id TEXT NOT NULL DEFAULT '',
 			name TEXT NOT NULL DEFAULT '',
 			priority TEXT NOT NULL DEFAULT 'P2',
 			type TEXT NOT NULL DEFAULT 'functional',
@@ -272,6 +273,15 @@ func RunMigrations() error {
 			timestamp INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL DEFAULT ''
 		)`,
+
+		// 21. 自由电子表格（纯文本网格，cells 为二维字符串数组 JSON）
+		`CREATE TABLE IF NOT EXISTS spreadsheets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '工作表',
+			cells TEXT NOT NULL DEFAULT '[]',
+			created_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT ''
+		)`,
 	}
 
 	for i, ddl := range tables {
@@ -325,6 +335,7 @@ func RunColumnMigrations() error {
 		{"table_cases", "precondition", "TEXT NOT NULL DEFAULT ''"},
 		{"table_cases", "assignee", "TEXT NOT NULL DEFAULT ''"},
 		{"table_cases", "status", "TEXT NOT NULL DEFAULT 'draft'"},
+		{"xmind_cases", "parent_id", "TEXT NOT NULL DEFAULT ''"},
 		{"xmind_cases", "priority", "TEXT NOT NULL DEFAULT 'P2'"},
 		{"xmind_cases", "type", "TEXT NOT NULL DEFAULT 'functional'"},
 		{"xmind_cases", "precondition", "TEXT NOT NULL DEFAULT ''"},

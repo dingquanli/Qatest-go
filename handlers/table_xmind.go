@@ -168,7 +168,7 @@ func DeleteTableModule(c *gin.Context) {
 
 func GetXmindCases(c *gin.Context) {
 	rows, err := database.DB.Query(
-		"SELECT id, name, module_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at FROM xmind_cases ORDER BY sort_order LIMIT 500",
+		"SELECT id, name, module_id, parent_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at FROM xmind_cases ORDER BY sort_order LIMIT 500",
 	)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
@@ -178,7 +178,7 @@ func GetXmindCases(c *gin.Context) {
 	cases := make([]models.XmindCase, 0)
 	for rows.Next() {
 		var x models.XmindCase
-		if err := rows.Scan(&x.ID, &x.Name, &x.ModuleID, &x.Priority, &x.Type, &x.Precondition, &x.Steps, &x.Expected, &x.Assignee, &x.Status, &x.Tags, &x.SortOrder, &x.CreatedAt, &x.UpdatedAt); err != nil {
+		if err := rows.Scan(&x.ID, &x.Name, &x.ModuleID, &x.ParentID, &x.Priority, &x.Type, &x.Precondition, &x.Steps, &x.Expected, &x.Assignee, &x.Status, &x.Tags, &x.SortOrder, &x.CreatedAt, &x.UpdatedAt); err != nil {
 			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
@@ -206,8 +206,8 @@ func CreateXmindCase(c *gin.Context) {
 		x.Status = "draft"
 	}
 	_, err := database.DB.Exec(
-		"INSERT INTO xmind_cases (id, name, module_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-		x.ID, x.Name, x.ModuleID, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.SortOrder, x.CreatedAt, x.UpdatedAt,
+		"INSERT INTO xmind_cases (id, name, module_id, parent_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+		x.ID, x.Name, x.ModuleID, x.ParentID, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.SortOrder, x.CreatedAt, x.UpdatedAt,
 	)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
@@ -234,8 +234,8 @@ func UpdateXmindCase(c *gin.Context) {
 		x.Status = "draft"
 	}
 	_, err := database.DB.Exec(
-		"UPDATE xmind_cases SET name=?, module_id=?, priority=?, type=?, precondition=?, steps=?, expected=?, assignee=?, status=?, tags=?, sort_order=?, updated_at=? WHERE id=?",
-		x.Name, x.ModuleID, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.SortOrder, x.UpdatedAt, id,
+		"UPDATE xmind_cases SET name=?, module_id=?, parent_id=?, priority=?, type=?, precondition=?, steps=?, expected=?, assignee=?, status=?, tags=?, sort_order=?, updated_at=? WHERE id=?",
+		x.Name, x.ModuleID, x.ParentID, x.Priority, x.Type, x.Precondition, x.Steps, x.Expected, x.Assignee, x.Status, x.Tags, x.SortOrder, x.UpdatedAt, id,
 	)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
@@ -245,10 +245,35 @@ func UpdateXmindCase(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: x})
 }
 
+// deleteXmindNode 删除节点及其全部子孙节点（级联）
+func deleteXmindNode(id string) error {
+	toDelete := []string{id}
+	for i := 0; i < len(toDelete); i++ {
+		rows, err := database.DB.Query("SELECT id FROM xmind_cases WHERE parent_id = ?", toDelete[i])
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var cid string
+			if err := rows.Scan(&cid); err != nil {
+				rows.Close()
+				return err
+			}
+			toDelete = append(toDelete, cid)
+		}
+		rows.Close()
+	}
+	for _, did := range toDelete {
+		if _, err := database.DB.Exec("DELETE FROM xmind_cases WHERE id = ?", did); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func DeleteXmindCase(c *gin.Context) {
 	id := c.Param("id")
-	_, err := database.DB.Exec("DELETE FROM xmind_cases WHERE id = ?", id)
-	if err != nil {
+	if err := deleteXmindNode(id); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}

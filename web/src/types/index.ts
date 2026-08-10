@@ -425,6 +425,7 @@ export interface XmindCase {
   id: string
   name: string
   moduleId: string
+  parentId: string // 父节点 ID，空字符串表示中心主题（根）
   priority: Priority
   type: string
   precondition: string
@@ -432,6 +433,15 @@ export interface XmindCase {
   assignee: string
   status: string
   tags: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 自由电子表格（纯文本网格，cells 为二维字符串数组） */
+export interface Spreadsheet {
+  id: string
+  name: string
+  cells: string[][] // 二维字符串数组
   createdAt: string
   updatedAt: string
 }

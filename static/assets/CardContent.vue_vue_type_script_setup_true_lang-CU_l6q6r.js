@@ -1,0 +1,1 @@
+import{a}from"./utils-heEtFvPD.js";import{d as o,N as r,o as n,c,O as l,e as p,P as m,l as d}from"./index-DCcHIibf.js";const v=o({__name:"CardContent",setup(u){const s=r(),e=d(()=>a("p-5 pt-0",s.class||""));return(t,_)=>(n(),c("div",l({class:e.value},{...p(s),class:void 0}),[m(t.$slots,"default")],16))}});export{v as _};

@@ -9,13 +9,14 @@ import (
 
 // RegisterRoutes 注册所有 API 路由
 func RegisterRoutes(r *gin.Engine) {
-	// 全局中间件
+	// 全局中间件（静态资源与 SPA fallback 不经过限流，避免浏览器加载 chunk 消耗 API 配额）
 	r.Use(middleware.Logger())
 	r.Use(middleware.CORS())
-	r.Use(middleware.RateLimit())
 	r.Use(middleware.SSRFCheck())
 
 	api := r.Group("/api")
+	// 限流仅作用于 API（含登录/上报等公开端点），防暴力破解与脚本灌库
+	api.Use(middleware.RateLimit())
 
 	// Auth（白名单，无需 JWT）
 	api.POST("/auth/login", handlers.Login)
@@ -188,6 +189,13 @@ func RegisterRoutes(r *gin.Engine) {
 	auth.POST("/xmind-modules", handlers.CreateXmindModule)
 	auth.PUT("/xmind-modules/:id", handlers.UpdateXmindModule)
 	auth.DELETE("/xmind-modules/:id", handlers.DeleteXmindModule)
+
+	// 自由电子表格（纯文本网格）
+	auth.GET("/spreadsheets", handlers.GetSpreadsheets)
+	auth.POST("/spreadsheets", handlers.CreateSpreadsheet)
+	auth.GET("/spreadsheets/:id", handlers.GetSpreadsheet)
+	auth.PUT("/spreadsheets/:id", handlers.UpdateSpreadsheet)
+	auth.DELETE("/spreadsheets/:id", handlers.DeleteSpreadsheet)
 
 	// WebSocket 端点
 	auth.GET("/ws", handlers.HandleWebSocket)                 // 执行日志（需 JWT）
