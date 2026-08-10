@@ -60,6 +60,8 @@ const activeCol = ref<ColKey | null>(null)
 // 新增行草稿（WPS 式：底部一行直接输入即新建）
 const draft = ref({ name: '', moduleId: '', priority: 'P1' as string, assignee: '', type: 'functional' as string })
 const savingDraft = ref(false)
+// 底部「新行」名称输入框引用（供「新建用例」按钮聚焦）
+const draftNameInput = ref<{ focus: () => void; select: () => void } | null>(null)
 
 // 所有可聚焦单元格的引用（键盘导航需要）
 // Input 组件实例（已 expose focus/select）或原生 select 元素
@@ -135,10 +137,13 @@ async function handleDeleteModule(id: string): Promise<void> {
   }
 }
 
-// ---- 抽屉：新建 / 编辑（详情：步骤、前置条件等）----
+// ---- 新建用例（WPS 风格：聚焦底部「新行」输入框，非传统表单弹窗）----
 function openCreate(): void {
-  editingCase.value = null
-  showDrawer.value = true
+  // 滚动到底部新行区域并聚焦名称输入框
+  nextTick(() => {
+    draftNameInput.value?.focus()
+    draftNameInput.value?.select()
+  })
 }
 function openEdit(c: TableCase): void {
   editingCase.value = c
@@ -514,6 +519,7 @@ async function handleDraftPaste(e: ClipboardEvent): Promise<void> {
               <span>新行</span>
             </div>
             <Input
+              ref="draftNameInput"
               v-model="draft.name"
               placeholder="用例名称，Enter 保存（支持从 Excel/WPS 整行粘贴批量新建）"
               class="flex-1 h-8 text-xs"

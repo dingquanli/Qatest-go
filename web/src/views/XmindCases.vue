@@ -516,13 +516,14 @@ async function deleteModule(id: string): Promise<void> {
   }
 }
 
-// ---- 用例详情抽屉 ----
+// ---- 用例详情抽屉（仅用于编辑步骤等复杂字段） ----
 const drawerDefaultModule = ref('')
+/** 打开新建用例 → 直接触发画布内联创建（XMind 风格，非传统表单弹窗） */
 function openCreate(moduleId?: string): void {
-  editingCase.value = null
-  drawerDefaultModule.value = moduleId || selectedModule.value || modules.value[0]?.id || ''
-  showDrawer.value = true
+  const targetModule = moduleId || selectedModule.value || modules.value[0]?.id || ''
+  startEdit('case', 'new', { isNew: true, moduleId: targetModule })
 }
+/** 打开编辑用例详情（步骤、前置条件等）→ 走抽屉 */
 function openEdit(c: XmindCase): void {
   editingCase.value = c
   drawerDefaultModule.value = c.moduleId || ''
@@ -659,7 +660,7 @@ async function submitCase(payload: Record<string, unknown>, isEdit: boolean): Pr
                   :class="selected?.kind === 'root' ? 'border-primary bg-primary/15 text-primary' : 'border-primary/40 bg-primary/10 text-primary hover:border-primary'"
                   :style="{ left: 0 + 'px', top: view.rootY + 'px', width: ROOT_W + 'px', height: ROOT_H + 'px' }"
                   @click="selectNode('root', 'root')"
-                  @dblclick="openCreate()"
+                  @dblclick="startEdit('module', 'new', { isNew: true })"
                 >
                   <Network class="w-4 h-4 shrink-0" />
                   <span class="text-sm font-semibold truncate">测试用例</span>
