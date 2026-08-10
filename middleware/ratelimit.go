@@ -12,7 +12,11 @@ import (
 
 // 速率限制配置
 const (
-	maxRequests     = 120 // 单 IP 单窗口最大请求数（实际生效上限，防止此前 5000 形同虚设）
+	// maxRequests 单 IP 单窗口最大 API 请求数。
+	// 静态资源与 SPA fallback 不走限流（router.go 中限流仅挂 /api 组），
+	// 300/60s 可容纳 SPA 正常浏览（登录后一次加载约 10~20 个 API 请求 + 多页面导航），
+	// 同时仍能拦截脚本化滥用（单 IP 每分钟 300 次 API 已远超正常操作）。
+	maxRequests     = 300
 	windowDuration  = 60 * time.Second
 	cleanupInterval = 5 * time.Minute
 	shardCount      = 32 // 分片数：将全局锁拆分为 32 个分片，降低锁争用
