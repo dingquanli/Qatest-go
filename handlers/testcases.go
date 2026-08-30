@@ -1,10 +1,8 @@
 package handlers
 
 import (
-	"log"
 	"net/http"
 
-	"qatest/database"
 	"qatest/models"
 	"qatest/repository"
 
@@ -105,29 +103,9 @@ func BatchImportCases(c *gin.Context) {
 		return
 	}
 
-	tx, err := database.DB.Begin()
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-		return
-	}
-
-	imported := 0
-	failed := 0
-	for _, tc := range req.Cases {
-		tc.ID = generateID("tc")
-		tc.CreatedAt = models.NowStr()
-		tc.UpdatedAt = tc.CreatedAt
-		if e := repository.InsertTestCase(tx, tc); e != nil {
-			failed++
-			continue // 不 break，继续处理剩余条目
-		}
-		imported++
-	}
-
+	// 事务整体收编于 repository（任一条失败整体回滚）
+	imported, failed, err := repository.ImportTestCases(req.Cases)
 	if failed > 0 {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			log.Printf("[ERROR] BatchImportCases 回滚失败: %v", rbErr)
-		}
 		// 事务已整体回滚，实际未导入任何用例，响应需与之一致
 		c.JSON(http.StatusOK, models.APIResponse{
 			Success: false,
@@ -136,8 +114,8 @@ func BatchImportCases(c *gin.Context) {
 		})
 		return
 	}
-	if err := tx.Commit(); err != nil {
-		respondError(c, http.StatusInternalServerError, err, "提交用例导入失败")
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 

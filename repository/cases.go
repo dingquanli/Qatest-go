@@ -71,10 +71,37 @@ func DeleteTestCase(id string) error {
 	return err
 }
 
-// InsertTestCase 批量导入用例的单条 INSERT（迁自 handlers/testcases.go BatchImportCases）。
-// 该场景要求整体成功或整体回滚，事务（Begin/Commit/Rollback）由调用方持有，
-// 本函数只在传入事务上执行 SQL，循环与失败计数仍留在 handler。
-func InsertTestCase(tx *sql.Tx, s models.TestCase) error {
+// ImportTestCases 批量导入用例：事务由本函数持有（任一条失败整体回滚）。
+// 返回 imported/failed 计数；failed>0 时调用方应向客户端返回「已整体回滚」。
+// 迁自 handlers/testcases.go BatchImportCases，SQL 原样保留。
+func ImportTestCases(cases []models.TestCase) (imported, failed int, err error) {
+	tx, err := database.DB.Begin()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	for _, tc := range cases {
+		tc.ID = NewID("tc")
+		tc.CreatedAt = models.NowStr()
+		tc.UpdatedAt = tc.CreatedAt
+		if e := insertTestCaseTx(tx, tc); e != nil {
+			failed++
+			continue // 不 break，继续处理剩余条目
+		}
+		imported++
+	}
+
+	if failed > 0 {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			err = rbErr
+		}
+		return imported, failed, err
+	}
+	return imported, failed, tx.Commit()
+}
+
+// insertTestCaseTx 在传入事务上执行单条用例 INSERT（列清单与表定义一致）
+func insertTestCaseTx(tx *sql.Tx, s models.TestCase) error {
 	_, err := tx.Exec(
 		`INSERT INTO test_cases (id, name, module_id, priority, type, precondition, steps, assignee, status, tags, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

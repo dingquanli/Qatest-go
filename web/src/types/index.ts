@@ -405,28 +405,8 @@ export interface QaReport {
 }
 
 /* ============================== 表格 / 思维导图用例 ============================== */
-export interface TableCase {
-  id: string
-  name: string
-  moduleId: string
-  priority: Priority
-  type: string
-  precondition: string
-  steps: string
-  assignee: string
-  status: string
-  tags: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface TableModule {
-  id: string
-  name: string
-  parentId: string | null
-  sortOrder: number
-  createdAt: string
-}
+// 注：旧 table-cases API 已被电子表格视图（/spreadsheets）取代并移除；
+// 后端 /table-cases 路由暂保留（无前端调用），TableCase/TableModule 类型随之下线。
 
 export interface XmindCase {
   id: string

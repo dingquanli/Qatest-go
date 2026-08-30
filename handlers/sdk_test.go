@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"qatest/database"
+	"qatest/repository"
 	"qatest/models"
 
 	"github.com/gin-gonic/gin"
@@ -75,8 +76,8 @@ func TestMaskSensitiveJSON(t *testing.T) {
 
 // TestReceiveReportAuth 上报接口的令牌鉴权：无令牌/错令牌 401，正确令牌 200 且落库脱敏
 func TestReceiveReportAuth(t *testing.T) {
-	ensureReportToken()
-	goodToken := getReportToken()
+	repository.EnsureReportToken()
+	goodToken := repository.GetReportToken()
 	if goodToken == "" {
 		t.Fatal("ensureReportToken 未生成上报令牌")
 	}
@@ -141,7 +142,7 @@ func TestReceiveReportAuth(t *testing.T) {
 
 // TestGetSDKListRoleVisibility reportToken 仅对 admin 下发
 func TestGetSDKListRoleVisibility(t *testing.T) {
-	ensureReportToken()
+	repository.EnsureReportToken()
 	r := newTestGin(t)
 	r.GET("/sdk", func(c *gin.Context) {
 		// 模拟 auth 中间件注入的角色
@@ -174,15 +175,15 @@ func TestGetSDKListRoleVisibility(t *testing.T) {
 
 // TestValidReportToken 常量时间比较逻辑本身
 func TestValidReportToken(t *testing.T) {
-	ensureReportToken()
-	good := getReportToken()
-	if !validReportToken(good) {
+	repository.EnsureReportToken()
+	good := repository.GetReportToken()
+	if !repository.ValidReportToken(good) {
 		t.Fatal("正确令牌应通过校验")
 	}
-	if validReportToken(good + "x") {
+	if repository.ValidReportToken(good + "x") {
 		t.Fatal("篡改令牌不应通过校验")
 	}
-	if validReportToken("") {
+	if repository.ValidReportToken("") {
 		t.Fatal("空令牌不应通过校验")
 	}
 }

@@ -330,13 +330,8 @@ func maskSensitiveJSON(s string) string {
 }
 
 // ============================================================
-// 上报令牌（存储已迁至 repository/reports.go）
+// 上报令牌（存储在 repository/reports.go：EnsureReportToken/GetReportToken/ValidReportToken）
 // ============================================================
-
-// 兼容包装：测试与包内调用沿用旧名
-func ensureReportToken()          { repository.EnsureReportToken() }
-func getReportToken() string      { return repository.GetReportToken() }
-func validReportToken(t string) bool { return repository.ValidReportToken(t) }
 
 // GetQaReports 查询 SDK 上报记录（分页 + 按 event 过滤），供前端「SDK 上报」查看页。
 func GetQaReports(c *gin.Context) {
