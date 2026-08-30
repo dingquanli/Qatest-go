@@ -15,6 +15,8 @@
 | P2 | `SetProtoDir` 任意用户改目录 | `handlers/proto.go` | `SetProtoDir` 增加 `role=="admin"` 校验 | `go build ./...` 通过 |
 | P2 | 代理监听 `0.0.0.0` 无认证 | `services/proxy_server.go` | `h1s.Addr` 改为 `127.0.0.1:%d`（仅本机） | `go build ./...` 通过 |
 | P2 | 限流上限 5000 失效 | `middleware/ratelimit.go` | `maxRequests` 降为 `120`，注释同步 | `go build ./...` 通过 |
+
+> 注：限流阈值后续经 commit `4044bd0` 调整为 **300/60s/IP**（容纳 SPA 一次加载的请求簇，仍可拦截脚本滥用），以代码当前值为准。
 | P3 | 公开静态 `/docs` | `routes/router.go` | 删除 `r.Static("/docs", "./docs")`（文档仍由已认证的 DownloadSDK 提供） | `go build ./...` 通过 |
 | P3 | 日志记录完整 RawQuery | `middleware/logger.go` | `redactQuery` 对敏感 query 参数脱敏为 `***` | `go build ./...` 通过 |
 | P3 | JWT 未强制签名算法 | `middleware/auth.go` | keyfunc 中校验 `SigningMethodHMAC`，拒绝 none/非对称算法 | `go build ./...` 通过 |
@@ -135,3 +137,42 @@
 1. **立刻修**：P1 设置接口密钥泄露（影响最大、改动最小，复用已有脱敏逻辑）。
 2. **开源前修**：P2 的 InstallAPK/SetProtoDir 失败闭合、代理绑定地址、限流上限。
 3. **可批量处理**：P3 各项清理（多为文档/注释/日志脱敏，不影响功能）。
+
+---
+
+# 第三轮修复（2026-08-29 · 架构评审风险全面修复）
+
+> 方式：架构评审后按 P1/P2/P3 全面修复；后端 `go build/vet/test` 全绿，前端 `vue-tsc + vite build` 通过。
+
+## 修复清单
+
+| 级别 | 问题 | 文件 | 修复方式 | 验证 |
+|---|---|---|---|---|
+| P1 | 执行器宿主机 RCE 默认开启 | `config/config.go` `services/executor.go` `handlers/executions.go` | `EXECUTOR_ENABLED` 改为**默认关闭**（fail-safe），仅显式 `=1` 开启；执行层增加纵深防御二次校验；启动日志按开关状态提示 | `go test ./...` 通过 |
+| P1 | 核心逻辑零测试 | `handlers/*_test.go` `middleware/auth_test.go` | 新增临时 SQLite 测试基座（TestMain）与 15+ 用例：上报令牌鉴权、敏感字段脱敏、reportToken 角色可见性、登录/刷新轮换/登出、JWT 中间件（含 alg=none 拒绝、query token 回归拒绝） | `go test ./...` 全绿 |
+| P2 | WebSocket 用 `?token=` 传 JWT（泄漏进日志/历史） | `middleware/auth.go` `routes/router.go` `handlers/websocket.go` `web/src/composables/useWebSocket.ts` `useProxyWebSocket.ts` | 移除 query token；WS 路由移出 auth 组，改为升级后**首消息认证**（`{"type":"auth","token"}`，10s 超时），未认证连接不进广播列表、收不到任何帧；前端首帧发认证消息 | `go test`/`vite build` 通过 |
+| P2 | reportToken 对任意登录用户可见 | `handlers/sdk.go` | `GetSDKList` 仅对 `role==admin` 下发 reportToken，普通用户返回空（前端 `v-if` 自动隐藏） | `go test` 通过 |
+| P2 | 刷新令牌可无限重签、无撤销 | `handlers/auth.go` `database/migrations.go` `routes/router.go` `web/src/api/{request,auth}.ts` `stores/user.ts` | 新增 `refresh_tokens` 表（仅存 SHA-256 哈希）；登录下发 refreshToken；`/auth/refresh` 改为**轮换式**（旧令牌用后即废、重放被拒、7 天过期）；新增 `/auth/logout` 撤销；前端 401 单飞刷新+重放原请求、登出调撤销接口 | `go test`（轮换/重放/撤销用例）通过 |
+| P2 | 模块 CRUD 五份逐行复制 | `handlers/module_crud.go`（新） `models/api_request.go` `models/testcase.go` 及 4 个 handler 文件 | 五张同构模块表收敛为 `models.ModuleNode`（别名保持兼容）+ `module_crud.go` 公共实现，20 个 handler 退化为单行调用；约删 300 行重复 SQL | `go build/test` 通过 |
+| P3 | gin 1.9.1 偏旧、依赖漂移 | `go.mod` | gin 升级至 v1.12.0，golang.org/x 系列同步刷新，`go mod tidy` | `go build/vet/test` 通过 |
+| P3 | 工作区运行产物堆积 | 仓库根目录 | 清理 `svc_test.exe`(21.9MB)、`bin/qatest.exe`、`server_*.log`、`svc*.log`、vite timestamp 文件；保留 `qatest.db*`（数据）与 `ProxyLogs/`（录制数据） | 文件系统确认 |
+| P3 | 文档漂移 | `README.md` `.env.example` 本文件 | README LICENSE 段落与实际 MIT LICENSE 矛盾已修正；`.env.example` 同步 EXECUTOR_ENABLED 默认关闭；限流阈值漂移加注说明 | — |
+
+## 遗留事项（2026-08-29 第四轮：1~3 已闭环）
+
+### 附带发现并修复的存量 bug（冒烟测试暴露，均为历史遗留、非本轮重构引入）
+
+| 严重度 | 问题 | 位置 | 修复 |
+|---|---|---|---|
+| 高 | **python/js 脚本执行从来就是坏的**：先 `cmd.Start()` 抓 PID 再 `cmd.CombinedOutput()`（内部二次 Start），必然报 `exec: already started`，任务恒为 failed 且错误仅经 WS 可见、无人发现 | `services/executor.go` executePython/executeJS | 改为 `Stdout/Stderr=buf → Start → Wait`；新增端到端回归测试 `services/executor_python_test.go`（依赖本机 python，无则跳过） |
+| 高 | **LogDir 为相对路径时 python/js 必失败**：tmpFile 为相对路径而 `cmd.Dir=tmpDir`，python/node 再基于工作目录拼接一次得到 `logs/tmp/logs/tmp/xxx.py` | `services/executor.go` execute() | 启动任务时先把 tmpDir 解析为绝对路径 |
+
+### 遗留事项闭环情况
+
+1. **✅ 执行器容器化沙箱（已落地）**：新增 `services/sandbox.go` + `EXECUTOR_SANDBOX=host|docker` 配置。
+   - docker 模式：python 容器 `--network none` + `--memory 256m --cpus 1 --pids-limit 64`；js 容器保留网络（经 `host.docker.internal` 回连宿主机 adb API）并注入 host-gateway；镜像可用 `EXECUTOR_PYTHON_IMAGE` / `EXECUTOR_NODE_IMAGE` 覆盖；容器按任务命名，取消/超时路径 `docker rm -f` 强制清理。
+   - **fail-safe**：docker 不可用时任务直接失败，绝不静默回退宿主机；shell（adb）模式始终在宿主机执行（依赖宿主机 USB 设备连接，且已有命令白名单）。
+   - 回归验证：host 模式命令构造与历史一致（单测覆盖），docker 模式参数构造 + 不可用拒跑有单测；`EXECUTOR_SANDBOX` 非法值回退 host。真机冒烟（HTTP 层建脚本→执行→状态 success + WS 日志流校验输出）通过。
+2. **✅ repository 层全量抽取（已落地）**：新增 `repository/` 包（15 个领域文件），handlers 内 101 处直连 SQL 全部迁入（scripts/cases/table_xmind/modules/testplans/executions/bugs/settings/migration/spreadsheets/api_definitions/api_requests/refresh_tokens/qa_reports）；SQL 语句逐字保留（列序/WHERE/ORDER/LIMIT 不变），handler 只剩「解析请求 → 调 repo → 映射响应」。唯一残留：`handlers/testcases.go` 的 `database.DB.Begin()` 事务句柄（单条事务内逐条 INSERT 复用 `repository.InsertTestCase(tx, …)`）。连接注入（多存储后端）仍为未来项。
+3. **✅ 前端测试框架（已落地）**：vitest 2.1 + happy-dom，`npm test` / `npm test:watch`。13 个用例覆盖：401 刷新轮换（自动重放、single-flight 防并发重复刷新、刷新失败登出、无 refreshToken 直登出）、user store（登录持久化/登出撤销）、WebSocket 首消息认证（首帧 auth、auth_ok/open、auth_failed 关闭、决策帧发送）。
+4. **`.env` 本地明文密钥**：未入库（已验证 git 追踪范围干净），但交接/换机时应轮换 `JWT_SECRET` 与 `ADMIN_PASSWORD`。（仍开放，属运维动作）

@@ -86,6 +86,9 @@ docker compose up -d --build
 | `JWT_SECRET` | JWT 签名密钥，**必填**，留空或用默认值服务拒绝启动 |
 | `ADMIN_PASSWORD` | 管理员 `admin` 登录口令（明文，启动时自动 bcrypt 哈希），**必填** |
 | `JS_AUTH_TOKEN` | JS 脚本中 `adb()` 调用鉴权令牌，留空则相关调用返回 401 |
+| `EXECUTOR_ENABLED` | 脚本执行引擎开关，**默认 `0` 关闭**（脚本会在宿主机直接运行用户代码，属高危能力）。确需使用时显式设置 `EXECUTOR_ENABLED=1` |
+| `EXECUTOR_SANDBOX` | 脚本执行隔离方式：`host`（默认，宿主机直跑）或 `docker`（容器隔离 + 资源限制；Docker 不可用时任务直接失败，不回退宿主机） |
+| `EXECUTOR_PYTHON_IMAGE` / `EXECUTOR_NODE_IMAGE` | docker 沙箱镜像，默认 `python:3.11-slim` / `node:20-alpine` |
 | `ALLOWED_ORIGINS` | CORS 允许源，多个用逗号分隔 |
 | `LOG_LEVEL` | 日志级别：DEBUG / INFO / WARN / ERROR |
 
@@ -105,4 +108,4 @@ openssl rand -hex 32
 
 ## 许可证
 
-本项目目前**未包含 LICENSE 文件，保留所有权利**。如需以开源协议发布，请在仓库中添加合适的许可证（如 MIT）。
+本项目基于 [MIT License](LICENSE) 发布。
