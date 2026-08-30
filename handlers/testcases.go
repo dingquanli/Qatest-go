@@ -6,6 +6,7 @@ import (
 
 	"qatest/database"
 	"qatest/models"
+	"qatest/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,27 +16,8 @@ import (
 func GetTestCases(c *gin.Context) {
 	// 优化：添加 LIMIT 分页，默认 100 条
 	limit := 100
-	rows, err := database.DB.Query(
-		`SELECT id, name, module_id, priority, type, precondition, steps, assignee, status, tags, created_at, updated_at
-		 FROM test_cases ORDER BY updated_at DESC LIMIT ?`, limit,
-	)
+	cases, err := repository.ListTestCases(limit)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-		return
-	}
-	defer rows.Close()
-
-	cases := make([]models.TestCase, 0)
-	for rows.Next() {
-		var tc models.TestCase
-		if err := rows.Scan(&tc.ID, &tc.Name, &tc.ModuleID, &tc.Priority, &tc.Type, &tc.Precondition,
-			&tc.Steps, &tc.Assignee, &tc.Status, &tc.Tags, &tc.CreatedAt, &tc.UpdatedAt); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-			return
-		}
-		cases = append(cases, tc)
-	}
-	if err := rows.Err(); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
@@ -44,14 +26,7 @@ func GetTestCases(c *gin.Context) {
 }
 
 func GetTestCase(c *gin.Context) {
-	id := c.Param("id")
-	var tc models.TestCase
-	err := database.DB.QueryRow(
-		`SELECT id, name, module_id, priority, type, precondition, steps, assignee, status, tags, created_at, updated_at
-		 FROM test_cases WHERE id = ?`, id,
-	).Scan(&tc.ID, &tc.Name, &tc.ModuleID, &tc.Priority, &tc.Type, &tc.Precondition,
-		&tc.Steps, &tc.Assignee, &tc.Status, &tc.Tags, &tc.CreatedAt, &tc.UpdatedAt)
-
+	tc, err := repository.GetTestCase(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: "用例不存在"})
 		return
@@ -79,13 +54,7 @@ func CreateTestCase(c *gin.Context) {
 	tc.CreatedAt = models.NowStr()
 	tc.UpdatedAt = tc.CreatedAt
 
-	_, err := database.DB.Exec(
-		`INSERT INTO test_cases (id, name, module_id, priority, type, precondition, steps, assignee, status, tags, script_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		tc.ID, tc.Name, tc.ModuleID, tc.Priority, tc.Type, tc.Precondition,
-		tc.Steps, tc.Assignee, tc.Status, tc.Tags, tc.ScriptID, tc.CreatedAt, tc.UpdatedAt,
-	)
-	if err != nil {
+	if err := repository.CreateTestCase(tc); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
@@ -111,13 +80,7 @@ func UpdateTestCase(c *gin.Context) {
 	}
 
 	tc.UpdatedAt = models.NowStr()
-	_, err := database.DB.Exec(
-		`UPDATE test_cases SET name=?, module_id=?, priority=?, type=?, precondition=?, steps=?, assignee=?, status=?, tags=?, script_id=?, updated_at=?
-		 WHERE id=?`,
-		tc.Name, tc.ModuleID, tc.Priority, tc.Type, tc.Precondition, tc.Steps,
-		tc.Assignee, tc.Status, tc.Tags, tc.ScriptID, tc.UpdatedAt, id,
-	)
-	if err != nil {
+	if err := repository.UpdateTestCase(id, tc); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
@@ -128,8 +91,7 @@ func UpdateTestCase(c *gin.Context) {
 
 func DeleteTestCase(c *gin.Context) {
 	id := c.Param("id")
-	_, err := database.DB.Exec("DELETE FROM test_cases WHERE id = ?", id)
-	if err != nil {
+	if err := repository.DeleteTestCase(id); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
@@ -155,12 +117,7 @@ func BatchImportCases(c *gin.Context) {
 		tc.ID = generateID("tc")
 		tc.CreatedAt = models.NowStr()
 		tc.UpdatedAt = tc.CreatedAt
-		if _, e := tx.Exec(
-			`INSERT INTO test_cases (id, name, module_id, priority, type, precondition, steps, assignee, status, tags, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			tc.ID, tc.Name, tc.ModuleID, tc.Priority, tc.Type, tc.Precondition,
-			tc.Steps, tc.Assignee, tc.Status, tc.Tags, tc.CreatedAt, tc.UpdatedAt,
-		); e != nil {
+		if e := repository.InsertTestCase(tx, tc); e != nil {
 			failed++
 			continue // 不 break，继续处理剩余条目
 		}
@@ -187,118 +144,30 @@ func BatchImportCases(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: gin.H{"imported": imported, "failed": failed}})
 }
 
-// --- 用例模块 ---
+// --- 用例模块（SQL 收敛于 repository/modules.go） ---
 
-func GetCaseModules(c *gin.Context) {
-	rows, err := database.DB.Query("SELECT id, name, parent_id, sort_order, created_at FROM case_modules ORDER BY sort_order")
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-		return
-	}
-	defer rows.Close()
-
-	modules := make([]models.CaseModule, 0)
-	for rows.Next() {
-		var m models.CaseModule
-		if err := rows.Scan(&m.ID, &m.Name, &m.ParentID, &m.SortOrder, &m.CreatedAt); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-			return
-		}
-		modules = append(modules, m)
-	}
-
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: modules})
-}
-
-func CreateCaseModule(c *gin.Context) {
-	var m models.CaseModule
-	if err := c.ShouldBindJSON(&m); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误"})
-		return
-	}
-
-	m.ID = generateID("cm")
-	m.CreatedAt = models.NowStr()
-	_, err := database.DB.Exec("INSERT INTO case_modules (id, name, parent_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
-		m.ID, m.Name, m.ParentID, m.SortOrder, m.CreatedAt)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-		return
-	}
-
-	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: m})
-}
-
-func UpdateCaseModule(c *gin.Context) {
-	id := c.Param("id")
-	var m models.CaseModule
-	if err := c.ShouldBindJSON(&m); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误"})
-		return
-	}
-
-	_, err := database.DB.Exec("UPDATE case_modules SET name=?, parent_id=?, sort_order=? WHERE id=?",
-		m.Name, m.ParentID, m.SortOrder, id)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-		return
-	}
-	m.ID = id
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: m})
-}
-
-func DeleteCaseModule(c *gin.Context) {
-	id := c.Param("id")
-	_, err := database.DB.Exec("DELETE FROM case_modules WHERE id = ?", id)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-		return
-	}
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
-}
+func GetCaseModules(c *gin.Context)  { listModules(c, tblCaseModules) }
+func CreateCaseModule(c *gin.Context) { createModule(c, tblCaseModules, "cm") }
+func UpdateCaseModule(c *gin.Context) { updateModule(c, tblCaseModules) }
+func DeleteCaseModule(c *gin.Context) { deleteModule(c, tblCaseModules) }
 
 // --- 用例执行记录 ---
 
 func GetCaseExecutions(c *gin.Context) {
-	rows, err := database.DB.Query(
-		"SELECT id, case_id, case_name, executor, result, steps, duration, remark, executed_at, plan_id, execution_id FROM case_executions ORDER BY executed_at DESC LIMIT 100",
-	)
+	execs, err := repository.ListCaseExecutions()
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
-	}
-	defer rows.Close()
-
-	execs := make([]models.CaseExecution, 0)
-	for rows.Next() {
-		var e models.CaseExecution
-		if err := rows.Scan(&e.ID, &e.CaseID, &e.CaseName, &e.Executor, &e.Result, &e.Steps, &e.Duration, &e.Remark, &e.ExecutedAt, &e.PlanID, &e.ExecutionID); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-			return
-		}
-		execs = append(execs, e)
 	}
 
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: execs})
 }
 
 func GetCaseExecutionsStats(c *gin.Context) {
-	rows, err := database.DB.Query("SELECT result, COUNT(*) as cnt FROM case_executions GROUP BY result")
+	stats, err := repository.CaseExecutionStats()
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
-	}
-	defer rows.Close()
-
-	stats := make(map[string]int)
-	for rows.Next() {
-		var result string
-		var cnt int
-		if err := rows.Scan(&result, &cnt); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
-			return
-		}
-		stats[result] = cnt
 	}
 
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: stats})
@@ -313,12 +182,7 @@ func CreateCaseExecution(c *gin.Context) {
 
 	e.ID = generateID("ce")
 	e.ExecutedAt = models.NowStr()
-	_, err := database.DB.Exec(
-		`INSERT INTO case_executions (id, case_id, case_name, executor, result, steps, duration, remark, executed_at, plan_id, execution_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.CaseID, e.CaseName, e.Executor, e.Result, e.Steps, e.Duration, e.Remark, e.ExecutedAt, e.PlanID, e.ExecutionID,
-	)
-	if err != nil {
+	if err := repository.CreateCaseExecution(e); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
@@ -334,20 +198,14 @@ func UpdateCaseExecution(c *gin.Context) {
 		return
 	}
 
-	_, err := database.DB.Exec(
-		`UPDATE case_executions SET case_id=?, case_name=?, executor=?, result=?, steps=?, duration=?, remark=?
-		 WHERE id=?`,
-		e.CaseID, e.CaseName, e.Executor, e.Result, e.Steps, e.Duration, e.Remark, id,
-	)
-	if err != nil {
+	if err := repository.UpdateCaseExecution(id, e); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}
 	e.ID = id
 
 	// 若该用例执行关联了测试计划，更新后重新聚合计划执行结果
-	var planID string
-	if err := database.DB.QueryRow("SELECT plan_id FROM case_executions WHERE id = ?", id).Scan(&planID); err == nil && planID != "" {
+	if planID, err := repository.GetCaseExecutionPlanID(id); err == nil && planID != "" {
 		aggregatePlanExecution(planID)
 	}
 
@@ -356,8 +214,7 @@ func UpdateCaseExecution(c *gin.Context) {
 
 func DeleteCaseExecution(c *gin.Context) {
 	id := c.Param("id")
-	_, err := database.DB.Exec("DELETE FROM case_executions WHERE id = ?", id)
-	if err != nil {
+	if err := repository.DeleteCaseExecution(id); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "数据库操作失败")
 		return
 	}

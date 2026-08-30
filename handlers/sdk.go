@@ -1,9 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -11,11 +8,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"qatest/database"
 	"qatest/models"
+	"qatest/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -60,19 +56,24 @@ var sdkEngines = map[string]map[string]string{
 }
 
 // GetSDKList 获取 SDK 引擎和文件列表
+// reportToken 等同于「向 qa_reports 写数据的凭据」，仅对 admin 角色下发，
+// 普通登录用户拿到空字符串（前端据此隐藏令牌展示）。
 func GetSDKList(c *gin.Context) {
 	type EngineInfo struct {
-		ID         string   `json:"id"`
-		Label      string   `json:"label"`
-		Files      []string `json:"files"`
-		ReportToken string  `json:"reportToken"`
+		ID          string   `json:"id"`
+		Label       string   `json:"label"`
+		Files       []string `json:"files"`
+		ReportToken string   `json:"reportToken"`
 	}
 
-	reportToken := getReportToken()
+	visibleToken := ""
+	if c.GetString("role") == "admin" {
+		visibleToken = repository.GetReportToken()
+	}
 	engines := make([]EngineInfo, 0)
 	for id, info := range sdkEngines {
 		files := splitAndTrim(info["files"], ",")
-		engines = append(engines, EngineInfo{ID: id, Label: info["label"], Files: files, ReportToken: reportToken})
+		engines = append(engines, EngineInfo{ID: id, Label: info["label"], Files: files, ReportToken: visibleToken})
 	}
 
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: engines})
@@ -220,8 +221,8 @@ func ReceiveReport(c *gin.Context) {
 
 	// 上报令牌校验：必须与服务端 settings.report_token 一致，否则拒绝。
 	// 关闭「任意客户端匿名灌库」的鉴权缺口。
-	ensureReportToken()
-	if !validReportToken(token) {
+	repository.EnsureReportToken()
+	if !repository.ValidReportToken(token) {
 		c.JSON(http.StatusUnauthorized, models.APIResponse{Success: false, Error: "上报令牌无效，请使用「下载 SDK」页显示的上报 Token"})
 		return
 	}
@@ -246,15 +247,12 @@ func ReceiveReport(c *gin.Context) {
 	}
 
 	id := generateID("qr")
-	_, err := database.DB.Exec(
-		`INSERT INTO qa_reports
-		 (id, event, name, result, message, tags, token, source, timestamp, created_at,
-		  seq, method, headers, req_body, resp_body, err_msg, elapsed_ms, ts)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, event, name, result, payload.Message,
-		string(tagsJSON), token, c.ClientIP(), ts, models.NowStr(),
-		payload.Seq, strings.TrimSpace(payload.Method), headersStr, reqStr, respStr, errStr, payload.ElapsedMs, payload.Ts,
-	)
+	err := repository.InsertQaReport(repository.ReportInsert{
+		ID: id, Event: event, Name: name, Result: result, Message: payload.Message,
+		Tags: string(tagsJSON), Token: token, Source: c.ClientIP(), Timestamp: ts, CreatedAt: models.NowStr(),
+		Seq: payload.Seq, Method: strings.TrimSpace(payload.Method), Headers: headersStr,
+		ReqBody: reqStr, RespBody: respStr, ErrMsg: errStr, ElapsedMs: payload.ElapsedMs, Ts: payload.Ts,
+	})
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "写入上报数据失败")
 		return
@@ -332,50 +330,13 @@ func maskSensitiveJSON(s string) string {
 }
 
 // ============================================================
-// 上报令牌：关闭匿名写 qa_reports 的鉴权缺口
+// 上报令牌（存储已迁至 repository/reports.go）
 // ============================================================
 
-const reportTokenKey = "report_token"
-
-var reportTokenOnce sync.Once
-
-// ensureReportToken 首次调用时若 settings 中无 report_token，则生成随机令牌并持久化。
-func ensureReportToken() {
-	reportTokenOnce.Do(func() {
-		var cnt int
-		if err := database.DB.QueryRow("SELECT COUNT(*) FROM settings WHERE key = ?", reportTokenKey).Scan(&cnt); err != nil {
-			return
-		}
-		if cnt > 0 {
-			return
-		}
-		tok := generateSecureToken(32)
-		_, _ = database.DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING", reportTokenKey, tok)
-	})
-}
-
-// getReportToken 读取服务端配置的上报令牌。
-func getReportToken() string {
-	var v string
-	_ = database.DB.QueryRow("SELECT value FROM settings WHERE key = ?", reportTokenKey).Scan(&v)
-	return v
-}
-
-// validReportToken 以常量时间比较上报令牌与配置是否一致。
-func validReportToken(token string) bool {
-	expected := getReportToken()
-	if expected == "" || token == "" {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
-}
-
-// generateSecureToken 生成十六进制安全随机串。
-func generateSecureToken(n int) string {
-	b := make([]byte, n)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
+// 兼容包装：测试与包内调用沿用旧名
+func ensureReportToken()          { repository.EnsureReportToken() }
+func getReportToken() string      { return repository.GetReportToken() }
+func validReportToken(t string) bool { return repository.ValidReportToken(t) }
 
 // GetQaReports 查询 SDK 上报记录（分页 + 按 event 过滤），供前端「SDK 上报」查看页。
 func GetQaReports(c *gin.Context) {
@@ -389,65 +350,27 @@ func GetQaReports(c *gin.Context) {
 		offset = 0
 	}
 
-	where := ""
-	args := []any{}
-	if event != "" {
-		where = "WHERE event = ?"
-		args = append(args, event)
-	}
-
-	var total int
-	if err := database.DB.QueryRow("SELECT COUNT(*) FROM qa_reports "+where, args...).Scan(&total); err != nil {
-		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-		return
-	}
-
-	queryArgs := append([]any{}, args...)
-	queryArgs = append(queryArgs, limit, offset)
-	rows, err := database.DB.Query(
-		`SELECT id, event, name, result, message, tags, token, source, timestamp, created_at,
-		        seq, method, headers, req_body, resp_body, err_msg, elapsed_ms, ts
-		 FROM qa_reports `+where+` ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
-		queryArgs...,
-	)
+	total, err := repository.CountQaReports(event)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
-	defer rows.Close()
 
-	type QaReport struct {
-		ID        string  `json:"id"`
-		Event     string  `json:"event"`
-		Name      string  `json:"name"`
-		Result    string  `json:"result"`
-		Message   string  `json:"message"`
-		Tags      string  `json:"tags"`
-		Token     string  `json:"token"`
-		Source    string  `json:"source"`
-		Timestamp int64   `json:"timestamp"`
-		CreatedAt string  `json:"createdAt"`
-		Seq       int64   `json:"seq"`
-		Method    string  `json:"method"`
-		Headers   string  `json:"headers"`
-		ReqBody   string  `json:"reqBody"`
-		RespBody  string  `json:"respBody"`
-		ErrMsg    string  `json:"errMsg"`
-		ElapsedMs float64 `json:"elapsedMs"`
-		Ts        string  `json:"ts"`
+	items, err := repository.ListQaReports(event, limit, offset)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
+		return
 	}
 
-	list := make([]QaReport, 0)
-	for rows.Next() {
-		var r QaReport
-		if err := rows.Scan(
-			&r.ID, &r.Event, &r.Name, &r.Result, &r.Message, &r.Tags, &r.Token, &r.Source, &r.Timestamp, &r.CreatedAt,
-			&r.Seq, &r.Method, &r.Headers, &r.ReqBody, &r.RespBody, &r.ErrMsg, &r.ElapsedMs, &r.Ts,
-		); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-			return
-		}
-		list = append(list, r)
+	list := make([]map[string]any, 0, len(items))
+	for _, r := range items {
+		list = append(list, map[string]any{
+			"id": r.ID, "event": r.Event, "name": r.Name, "result": r.Result,
+			"message": r.Message, "tags": r.Tags, "token": r.Token, "source": r.Source,
+			"timestamp": r.Timestamp, "createdAt": r.CreatedAt, "seq": r.Seq,
+			"method": r.Method, "headers": r.Headers, "reqBody": r.ReqBody,
+			"respBody": r.RespBody, "errMsg": r.ErrMsg, "elapsedMs": r.ElapsedMs, "ts": r.Ts,
+		})
 	}
 
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: gin.H{"total": total, "items": list}})

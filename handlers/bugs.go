@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"qatest/config"
-	"qatest/database"
 	"qatest/models"
+	"qatest/repository"
 	"qatest/services"
 
 	"github.com/gin-gonic/gin"
@@ -18,29 +18,8 @@ import (
 
 // GetBugs 缺陷列表
 func GetBugs(c *gin.Context) {
-	rows, err := database.DB.Query(
-		`SELECT id, title, severity, priority, status, assignee, reporter, module, env,
-		 description, steps, expected, actual, tags, related_case_id, external_id, external_url, created_at, updated_at
-		 FROM bugs ORDER BY updated_at DESC LIMIT 200`,
-	)
+	bugs, err := repository.ListBugs()
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-		return
-	}
-	defer rows.Close()
-
-	bugs := make([]models.Bug, 0)
-	for rows.Next() {
-		var b models.Bug
-		if err := rows.Scan(&b.ID, &b.Title, &b.Severity, &b.Priority, &b.Status, &b.Assignee, &b.Reporter,
-			&b.Module, &b.Env, &b.Description, &b.Steps, &b.Expected, &b.Actual, &b.Tags,
-			&b.RelatedCaseID, &b.ExternalID, &b.ExternalURL, &b.CreatedAt, &b.UpdatedAt); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-			return
-		}
-		bugs = append(bugs, b)
-	}
-	if err := rows.Err(); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -50,24 +29,10 @@ func GetBugs(c *gin.Context) {
 
 // GetBugStats 缺陷统计
 func GetBugStats(c *gin.Context) {
-	rows, err := database.DB.Query(
-		`SELECT status, COUNT(*) as cnt FROM bugs GROUP BY status`,
-	)
+	stats, err := repository.GetBugStats()
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
-	}
-	defer rows.Close()
-
-	stats := make(map[string]int)
-	for rows.Next() {
-		var status string
-		var cnt int
-		if err := rows.Scan(&status, &cnt); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-			return
-		}
-		stats[status] = cnt
 	}
 
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: stats})
@@ -76,15 +41,7 @@ func GetBugStats(c *gin.Context) {
 // GetBug 缺陷详情
 func GetBug(c *gin.Context) {
 	id := c.Param("id")
-	var b models.Bug
-	err := database.DB.QueryRow(
-		`SELECT id, title, severity, priority, status, assignee, reporter, module, env,
-		 description, steps, expected, actual, tags, related_case_id, external_id, external_url, created_at, updated_at
-		 FROM bugs WHERE id = ?`, id,
-	).Scan(&b.ID, &b.Title, &b.Severity, &b.Priority, &b.Status, &b.Assignee, &b.Reporter,
-		&b.Module, &b.Env, &b.Description, &b.Steps, &b.Expected, &b.Actual, &b.Tags,
-		&b.RelatedCaseID, &b.ExternalID, &b.ExternalURL, &b.CreatedAt, &b.UpdatedAt)
-
+	b, err := repository.GetBug(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: "缺陷不存在"})
 		return
@@ -105,15 +62,7 @@ func CreateBug(c *gin.Context) {
 	b.CreatedAt = models.NowStr()
 	b.UpdatedAt = b.CreatedAt
 
-	_, err := database.DB.Exec(
-		`INSERT INTO bugs (id, title, severity, priority, status, assignee, reporter, module, env,
-		 description, steps, expected, actual, tags, related_case_id, external_id, external_url, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		b.ID, b.Title, b.Severity, b.Priority, b.Status, b.Assignee, b.Reporter,
-		b.Module, b.Env, b.Description, b.Steps, b.Expected, b.Actual, b.Tags,
-		b.RelatedCaseID, b.ExternalID, b.ExternalURL, b.CreatedAt, b.UpdatedAt,
-	)
-	if err != nil {
+	if err := repository.CreateBug(b); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -131,15 +80,7 @@ func UpdateBug(c *gin.Context) {
 	}
 
 	b.UpdatedAt = models.NowStr()
-	_, err := database.DB.Exec(
-		`UPDATE bugs SET title=?, severity=?, priority=?, status=?, assignee=?, reporter=?, module=?, env=?,
-		 description=?, steps=?, expected=?, actual=?, tags=?, related_case_id=?, external_id=?, external_url=?, updated_at=?
-		 WHERE id=?`,
-		b.Title, b.Severity, b.Priority, b.Status, b.Assignee, b.Reporter,
-		b.Module, b.Env, b.Description, b.Steps, b.Expected, b.Actual, b.Tags,
-		b.RelatedCaseID, b.ExternalID, b.ExternalURL, b.UpdatedAt, id,
-	)
-	if err != nil {
+	if err := repository.UpdateBug(id, b); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -151,8 +92,7 @@ func UpdateBug(c *gin.Context) {
 // DeleteBug 删除缺陷
 func DeleteBug(c *gin.Context) {
 	id := c.Param("id")
-	_, err := database.DB.Exec("DELETE FROM bugs WHERE id = ?", id)
-	if err != nil {
+	if err := repository.DeleteBug(id); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -183,8 +123,7 @@ func loadJiraConfig() jiraRuntimeConfig {
 		"jira_project":   &cfg.Project,
 	}
 	for key, ptr := range overrides {
-		var v string
-		if err := database.DB.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&v); err == nil && v != "" {
+		if v, err := repository.GetSetting(key); err == nil && v != "" {
 			*ptr = v
 		}
 	}
@@ -279,12 +218,8 @@ func SyncBugToJira(c *gin.Context) {
 	}
 
 	// 从库读取最新缺陷
-	var b models.Bug
-	if err := database.DB.QueryRow(
-		`SELECT id,title,severity,priority,status,assignee,reporter,module,env,description,steps,expected,actual,tags
-		 FROM bugs WHERE id=?`, bugID,
-	).Scan(&b.ID, &b.Title, &b.Severity, &b.Priority, &b.Status, &b.Assignee, &b.Reporter,
-		&b.Module, &b.Env, &b.Description, &b.Steps, &b.Expected, &b.Actual, &b.Tags); err != nil {
+	b, err := repository.GetBugForSync(bugID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: "缺陷不存在"})
 		return
 	}
@@ -345,10 +280,7 @@ func SyncBugToJira(c *gin.Context) {
 	if jr.Key != "" {
 		externalURL = strings.TrimRight(jc.BaseURL, "/") + "/browse/" + jr.Key
 	}
-	if _, err := database.DB.Exec(
-		"UPDATE bugs SET external_id=?, external_url=?, updated_at=? WHERE id=?",
-		jr.Key, externalURL, models.NowStr(), bugID,
-	); err != nil {
+	if err := repository.UpdateBugExternal(bugID, jr.Key, externalURL, models.NowStr()); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "回写外部链接失败")
 		return
 	}

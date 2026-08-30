@@ -17,14 +17,8 @@ type TestCase struct {
 	UpdatedAt    string `json:"updatedAt"`
 }
 
-// CaseModule 用例模块
-type CaseModule struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sortOrder"`
-	CreatedAt string `json:"createdAt"`
-}
+// CaseModule 用例模块（与 ModuleNode 同构，统一为别名）
+type CaseModule = ModuleNode
 
 // BatchCaseImport 批量导入用例请求
 type BatchCaseImport struct {

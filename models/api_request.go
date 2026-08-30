@@ -14,14 +14,25 @@ type APIDefinition struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
-// APIDefModule 接口定义模块
-type APIDefModule struct {
+// ModuleNode 模块/文件夹节点统一类型。
+// 五张模块表（case_modules / api_def_modules / api_folders / table_modules / xmind_modules）
+// 的字段与 JSON 契约完全一致，共用同一结构体；下方别名保持各业务域的可读命名。
+// JSON 契约不变，前端类型无需改动。
+type ModuleNode struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	ParentID  string `json:"parentId"`
 	SortOrder int    `json:"sortOrder"`
 	CreatedAt string `json:"createdAt"`
 }
+
+// 既有命名的兼容别名（wire 格式与旧定义逐字段一致）
+type (
+	APIDefModule = ModuleNode
+	APIFolder    = ModuleNode
+	TableModule  = ModuleNode
+	XmindModule  = ModuleNode
+)
 
 // APIRequest API 请求
 type APIRequest struct {
@@ -37,15 +48,6 @@ type APIRequest struct {
 	FolderID    string `json:"folderId"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
-}
-
-// APIFolder API 文件夹
-type APIFolder struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sortOrder"`
-	CreatedAt string `json:"createdAt"`
 }
 
 // APIHistory API 请求历史
@@ -78,15 +80,6 @@ type TableCase struct {
 	UpdatedAt    string `json:"updatedAt"`
 }
 
-// TableModule 表格视图模块
-type TableModule struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sortOrder"`
-	CreatedAt string `json:"createdAt"`
-}
-
 // XmindCase XMind 视图用例（纯文本逻辑图节点）
 type XmindCase struct {
 	ID           string `json:"id"`
@@ -113,15 +106,6 @@ type XmindCase struct {
 	SortOrder    int    `json:"sortOrder"`
 	CreatedAt    string `json:"createdAt"`
 	UpdatedAt    string `json:"updatedAt"`
-}
-
-// XmindModule XMind 视图模块
-type XmindModule struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ParentID  string `json:"parentId"`
-	SortOrder int    `json:"sortOrder"`
-	CreatedAt string `json:"createdAt"`
 }
 
 // Spreadsheet 自由电子表格（纯文本网格，cells 为二维字符串数组 JSON）

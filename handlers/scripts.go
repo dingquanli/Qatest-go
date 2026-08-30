@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"qatest/database"
 	"qatest/models"
+	"qatest/repository"
 	"qatest/services"
 
 	"github.com/gin-gonic/gin"
@@ -13,44 +13,21 @@ import (
 
 // GetScripts 脚本列表
 func GetScripts(c *gin.Context) {
-	rows, err := database.DB.Query("SELECT id, name, description, language, code, created_at, updated_at FROM scripts ORDER BY updated_at DESC LIMIT 500")
+	scripts, err := repository.ListScripts()
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
-	defer rows.Close()
-
-	scripts := make([]models.Script, 0)
-	for rows.Next() {
-		var s models.Script
-		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.Language, &s.Code, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-			return
-		}
-		scripts = append(scripts, s)
-	}
-	if err := rows.Err(); err != nil {
-		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-		return
-	}
-
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: scripts})
 }
 
 // GetScript 脚本详情
 func GetScript(c *gin.Context) {
-	id := c.Param("id")
-	var s models.Script
-	err := database.DB.QueryRow(
-		"SELECT id, name, description, language, code, created_at, updated_at FROM scripts WHERE id = ?",
-		id,
-	).Scan(&s.ID, &s.Name, &s.Description, &s.Language, &s.Code, &s.CreatedAt, &s.UpdatedAt)
-
+	s, err := repository.GetScript(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: "脚本不存在"})
 		return
 	}
-
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: s})
 }
 
@@ -66,11 +43,7 @@ func CreateScript(c *gin.Context) {
 	s.CreatedAt = models.NowStr()
 	s.UpdatedAt = s.CreatedAt
 
-	_, err := database.DB.Exec(
-		"INSERT INTO scripts (id, name, description, language, code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		s.ID, s.Name, s.Description, s.Language, s.Code, s.CreatedAt, s.UpdatedAt,
-	)
-	if err != nil {
+	if err := repository.CreateScript(s); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -89,11 +62,7 @@ func UpdateScript(c *gin.Context) {
 
 	s.UpdatedAt = models.NowStr()
 
-	_, err := database.DB.Exec(
-		"UPDATE scripts SET name=?, description=?, language=?, code=?, updated_at=? WHERE id=?",
-		s.Name, s.Description, s.Language, s.Code, s.UpdatedAt, id,
-	)
-	if err != nil {
+	if err := repository.UpdateScript(id, s); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -104,9 +73,7 @@ func UpdateScript(c *gin.Context) {
 
 // DeleteScript 删除脚本
 func DeleteScript(c *gin.Context) {
-	id := c.Param("id")
-	_, err := database.DB.Exec("DELETE FROM scripts WHERE id = ?", id)
-	if err != nil {
+	if err := repository.DeleteScript(c.Param("id")); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}

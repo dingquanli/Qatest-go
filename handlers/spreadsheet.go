@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"qatest/database"
 	"qatest/models"
+	"qatest/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -59,29 +59,17 @@ func normalizeJSON(raw json.RawMessage, def string) string {
 }
 
 func GetSpreadsheets(c *gin.Context) {
-	rows, err := database.DB.Query("SELECT id, name, cells, formats, col_widths, row_heights, merges, created_at, updated_at FROM spreadsheets ORDER BY created_at")
+	list, err := repository.ListSpreadsheets()
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
-	}
-	defer rows.Close()
-	list := make([]models.Spreadsheet, 0)
-	for rows.Next() {
-		var s models.Spreadsheet
-		if err := rows.Scan(&s.ID, &s.Name, &s.Cells, &s.Formats, &s.ColWidths, &s.RowHeights, &s.Merges, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-			return
-		}
-		list = append(list, s)
 	}
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: list})
 }
 
 func GetSpreadsheet(c *gin.Context) {
 	id := c.Param("id")
-	var s models.Spreadsheet
-	err := database.DB.QueryRow("SELECT id, name, cells, formats, col_widths, row_heights, merges, created_at, updated_at FROM spreadsheets WHERE id = ?", id).
-		Scan(&s.ID, &s.Name, &s.Cells, &s.Formats, &s.ColWidths, &s.RowHeights, &s.Merges, &s.CreatedAt, &s.UpdatedAt)
+	s, err := repository.GetSpreadsheet(id)
 	if err != nil {
 		respondError(c, http.StatusNotFound, err, "未找到该表")
 		return
@@ -109,9 +97,7 @@ func CreateSpreadsheet(c *gin.Context) {
 	if s.Name == "" {
 		s.Name = "工作表"
 	}
-	_, err := database.DB.Exec("INSERT INTO spreadsheets (id, name, cells, formats, col_widths, row_heights, merges, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-		s.ID, s.Name, s.Cells, s.Formats, s.ColWidths, s.RowHeights, s.Merges, s.CreatedAt, s.UpdatedAt)
-	if err != nil {
+	if err := repository.CreateSpreadsheet(s); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -135,9 +121,7 @@ func UpdateSpreadsheet(c *gin.Context) {
 		Merges:     normalizeJSON(in.Merges, "[]"),
 		UpdatedAt:  models.NowStr(),
 	}
-	_, err := database.DB.Exec("UPDATE spreadsheets SET name=?, cells=?, formats=?, col_widths=?, row_heights=?, merges=?, updated_at=? WHERE id=?",
-		s.Name, s.Cells, s.Formats, s.ColWidths, s.RowHeights, s.Merges, s.UpdatedAt, id)
-	if err != nil {
+	if err := repository.UpdateSpreadsheet(id, s); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -146,8 +130,7 @@ func UpdateSpreadsheet(c *gin.Context) {
 
 func DeleteSpreadsheet(c *gin.Context) {
 	id := c.Param("id")
-	_, err := database.DB.Exec("DELETE FROM spreadsheets WHERE id = ?", id)
-	if err != nil {
+	if err := repository.DeleteSpreadsheet(id); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}

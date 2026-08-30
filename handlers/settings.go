@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"qatest/database"
 	"qatest/models"
+	"qatest/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,20 +31,14 @@ func requireAdmin(c *gin.Context) bool {
 
 // GetSettings 获取全部设置（敏感字段脱敏）
 func GetSettings(c *gin.Context) {
-	rows, err := database.DB.Query("SELECT key, value FROM settings ORDER BY key")
+	raw, err := repository.GetAllSettings()
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
-	defer rows.Close()
 
 	settings := make(map[string]string)
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-			return
-		}
+	for k, v := range raw {
 		if isSecretSettingKey(k) {
 			v = maskedSecretValue
 		}
@@ -72,7 +66,7 @@ func UpdateSettings(c *gin.Context) {
 		if v == maskedSecretValue {
 			continue
 		}
-		if _, err := database.DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?", k, v, v); err != nil {
+		if err := repository.UpsertSetting(k, v); err != nil {
 			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 			return
 		}
@@ -84,8 +78,7 @@ func UpdateSettings(c *gin.Context) {
 // GetSetting 获取单项设置（敏感字段脱敏）
 func GetSetting(c *gin.Context) {
 	key := c.Param("key")
-	var value string
-	err := database.DB.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&value)
+	value, err := repository.GetSetting(key)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: "设置项不存在"})
 		return
@@ -118,8 +111,7 @@ func UpdateSetting(c *gin.Context) {
 		return
 	}
 
-	_, err := database.DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?", key, req.Value, req.Value)
-	if err != nil {
+	if err := repository.UpsertSetting(key, req.Value); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
