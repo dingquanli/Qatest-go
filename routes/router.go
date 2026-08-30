@@ -21,6 +21,7 @@ func RegisterRoutes(r *gin.Engine) {
 	// Auth（白名单，无需 JWT）
 	api.POST("/auth/login", handlers.Login)
 	api.POST("/auth/refresh", handlers.RefreshToken)
+	api.POST("/auth/logout", handlers.Logout) // 撤销刷新令牌；幂等，令牌无效也返回成功
 
 	// 需要认证的路由
 	auth := api.Group("")
@@ -198,9 +199,11 @@ func RegisterRoutes(r *gin.Engine) {
 	auth.PUT("/spreadsheets/:id", handlers.UpdateSpreadsheet)
 	auth.DELETE("/spreadsheets/:id", handlers.DeleteSpreadsheet)
 
-	// WebSocket 端点
-	auth.GET("/ws", handlers.HandleWebSocket)                 // 执行日志（需 JWT）
-	auth.GET("/proxy-ws", handlers.HandleProxyWebSocket)     // 协议录制（需 JWT）
+	// WebSocket 端点：不走 HTTP 层 JWT（浏览器 WebSocket 无法自定义请求头），
+	// 改为升级后「首消息认证」（{"type":"auth","token":"<JWT>"}），见 handlers/websocket.go。
+	// 仍受全局限流与 Origin 白名单（upgrader.CheckOrigin）保护。
+	api.GET("/ws", handlers.HandleWebSocket)             // 执行日志（首消息认证）
+	api.GET("/proxy-ws", handlers.HandleProxyWebSocket)  // 协议录制（首消息认证）
 
 	// 静态文件 + SPA fallback
 	r.Static("/assets", "./static/assets")

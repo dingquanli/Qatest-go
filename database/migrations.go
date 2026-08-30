@@ -287,6 +287,16 @@ func RunMigrations() error {
 			created_at TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT ''
 		)`,
+
+		// 22. 刷新令牌（轮换 + 撤销；只存 SHA-256 哈希，不存明文）
+		`CREATE TABLE IF NOT EXISTS refresh_tokens (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL DEFAULT '',
+			token_hash TEXT NOT NULL UNIQUE,
+			expires_at TEXT NOT NULL DEFAULT '',
+			revoked INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL DEFAULT ''
+		)`,
 	}
 
 	for i, ddl := range tables {

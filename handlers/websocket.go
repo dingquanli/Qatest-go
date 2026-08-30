@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/url"
@@ -8,6 +9,8 @@ import (
 	"time"
 
 	"qatest/config"
+	"qatest/middleware"
+	"qatest/models"
 	"qatest/services"
 
 	"github.com/gorilla/websocket"
@@ -98,11 +101,56 @@ func setupWSHeartbeat(conn *websocket.Conn) *time.Ticker {
 	return ticker
 }
 
+// wsAuthTimeout 等待首条认证消息的超时时间（var 以便测试缩短）
+var wsAuthTimeout = 10 * time.Second
+
+// authenticateWS WebSocket 首消息认证。
+// 浏览器 WebSocket API 无法自定义请求头，且 ?token= query 会让 JWT 落入
+// 访问日志/浏览器历史，因此约定：升级完成后客户端必须在 wsAuthTimeout 内
+// 发送首条消息 {"type":"auth","token":"<JWT>"}；校验失败立即关闭连接。
+// 认证成功返回 Claims；连接读到的其他消息在认证完成前一律忽略并继续等待。
+func authenticateWS(conn *websocket.Conn) *models.Claims {
+	conn.SetReadDeadline(time.Now().Add(wsAuthTimeout))
+	defer conn.SetReadDeadline(time.Time{})
+
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			return nil
+		}
+		var msg struct {
+			Type  string `json:"type"`
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(raw, &msg); err != nil || msg.Type != "auth" {
+			continue // 非 auth 消息（认证前不允许任何业务帧），继续等待直至超时
+		}
+		claims, err := middleware.ParseToken(msg.Token)
+		if err != nil || claims == nil {
+			wsWriteMu.Lock()
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"auth_failed","error":"令牌无效或已过期"}`))
+			wsWriteMu.Unlock()
+			conn.Close()
+			return nil
+		}
+		wsWriteMu.Lock()
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"auth_ok"}`))
+		wsWriteMu.Unlock()
+		return claims
+	}
+}
+
 // HandleWebSocket 执行日志 WebSocket
 func HandleWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Printf("WebSocket 升级失败: %v", err)
+		return
+	}
+
+	// 首消息认证：未认证的连接不加入广播列表（收不到任何推送）
+	if authenticateWS(conn) == nil {
+		conn.Close()
 		return
 	}
 
@@ -130,11 +178,17 @@ func HandleWebSocket(c *gin.Context) {
 }
 
 // HandleProxyWebSocket 代理 WebSocket
-// 读取前端决策消息并转发给 ProxyServer.HandleProxyWsMessage
+// 首消息认证通过后，读取前端决策消息并转发给 ProxyServer.HandleProxyWsMessage
 func HandleProxyWebSocket(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Printf("代理 WebSocket 升级失败: %v", err)
+		return
+	}
+
+	// 首消息认证：未认证连接不注册客户端计数，也收不到任何代理帧
+	if authenticateWS(conn) == nil {
+		conn.Close()
 		return
 	}
 

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { login as apiLogin } from '@/api/auth'
+import { login as apiLogin, logout as apiLogout } from '@/api/auth'
 import type { AuthState, LoginRequest, UserInfo } from '@/types'
 
 // P1-12 说明：JWT 存储于 localStorage，存在 XSS 风险。
@@ -41,6 +41,7 @@ export const useUserStore = defineStore('user', () => {
       name: res.user.name,
       role: res.user.role,
       token: res.token,
+      refreshToken: res.refreshToken,
     }
     auth.value = state
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
@@ -48,13 +49,24 @@ export const useUserStore = defineStore('user', () => {
   }
 
   function logout(): void {
+    // 先撤销服务端刷新令牌（轮换式令牌，撤销后旧令牌无法再换新），
+    // 再清除本地状态；撤销请求失败不阻塞本地登出。
+    const refreshToken = auth.value?.refreshToken
     auth.value = null
     localStorage.removeItem(STORAGE_KEY)
+    if (refreshToken) {
+      apiLogout({ token: refreshToken }).catch(() => {})
+    }
   }
 
   function getToken(): string {
     return auth.value?.token ?? ''
   }
 
-  return { auth, token, isLoggedIn, user, login, logout, getToken }
+  /** 从 localStorage 重新加载认证状态（request.ts 后台刷新令牌后调用，保持 Pinia 同步） */
+  function syncFromStorage(): void {
+    auth.value = loadAuth()
+  }
+
+  return { auth, token, isLoggedIn, user, login, logout, getToken, syncFromStorage }
 })

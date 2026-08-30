@@ -19,6 +19,8 @@ var authWhitelist = map[string]bool{
 }
 
 // AuthRequired JWT 认证中间件
+// 注意：不再支持 ?token= query 传参——JWT 会落入访问日志/浏览器历史；
+// WebSocket 改为「首消息认证」，由 handlers 包在升级后通过第一帧校验 JWT。
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if authWhitelist[c.Request.URL.Path] {
@@ -27,13 +29,6 @@ func AuthRequired() gin.HandlerFunc {
 		}
 
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			// 也检查 query 参数（WebSocket）
-			authHeader = c.Query("token")
-			if authHeader != "" {
-				authHeader = "Bearer " + authHeader
-			}
-		}
 
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, models.APIResponse{

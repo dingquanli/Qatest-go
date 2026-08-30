@@ -3,8 +3,10 @@ import { ref, onUnmounted } from 'vue'
 export type ProxyWsStatus = 'closed' | 'connecting' | 'open'
 
 /**
- * gRPC 代理 WebSocket（双向）。连接 /api/proxy-ws?token=<JWT>。
- * 后端会推送拦截到的帧；前端可通过 send() 把决策（允许/拦截/修改）发回后端。
+ * gRPC 代理 WebSocket（双向）。连接 /api/proxy-ws，升级后首条消息发送
+ * {"type":"auth","token":<JWT>} 认证（避免 ?token= 泄漏 JWT），收到 auth_ok 后
+ * 服务端开始推送拦截帧；前端可通过 send() 把决策（允许/拦截/修改）发回后端。
+ * WebSocket 消息按序到达，首帧一定是认证帧，无需在客户端做发送队列。
  */
 export function useProxyWebSocket(getToken: () => string) {
   const messages = ref<string[]>([])
@@ -14,7 +16,7 @@ export function useProxyWebSocket(getToken: () => string) {
 
   function buildUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${location.host}/api/proxy-ws?token=${encodeURIComponent(getToken())}`
+    return `${proto}://${location.host}/api/proxy-ws`
   }
 
   function connect(): void {
@@ -24,10 +26,25 @@ export function useProxyWebSocket(getToken: () => string) {
     status.value = 'connecting'
     ws = new WebSocket(buildUrl())
     ws.onopen = () => {
-      status.value = 'open'
+      // 首消息认证：必须是连接建立后的第一帧
+      ws?.send(JSON.stringify({ type: 'auth', token: getToken() }))
     }
     ws.onmessage = (e: MessageEvent) => {
       const raw = typeof e.data === 'string' ? e.data : String(e.data)
+      // 控制帧（认证结果）不进入业务消息列表
+      try {
+        const ctrl = JSON.parse(raw)
+        if (ctrl?.type === 'auth_ok') {
+          status.value = 'open'
+          return
+        }
+        if (ctrl?.type === 'auth_failed') {
+          ws?.close()
+          return
+        }
+      } catch {
+        /* 非 JSON 即业务帧，继续入列 */
+      }
       messages.value.push(raw)
       if (messages.value.length > 1000) messages.value.shift()
       messageHandler?.(raw)

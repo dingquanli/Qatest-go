@@ -17,10 +17,11 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
-// LoginResponse 登录响应
+// LoginResponse 登录响应（含刷新令牌，前端持久化后用于 /auth/refresh 轮换）
 type LoginResponse struct {
-	Token string `json:"token"`
-	User  User   `json:"user"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refreshToken,omitempty"`
+	User         User   `json:"user"`
 }
 
 // RefreshRequest 刷新 Token 请求

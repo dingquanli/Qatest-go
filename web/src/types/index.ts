@@ -25,11 +25,17 @@ export interface UserInfo {
 
 export interface LoginResponse {
   token: string
+  refreshToken?: string
   user: UserInfo
 }
 
 export interface RefreshRequest {
   token: string
+}
+
+export interface RefreshResponse {
+  token: string
+  refreshToken: string
 }
 
 export interface AuthState {
@@ -38,6 +44,7 @@ export interface AuthState {
   name: string
   role: string
   token: string
+  refreshToken?: string
 }
 
 /* ============================== 设备 ============================== */
