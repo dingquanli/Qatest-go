@@ -3,6 +3,12 @@
 > 用途：本文档面向**后续接手的 AI 开发者**，用于在既有代码基础上做功能修复 / 加固 / 扩展。
 > 编写时间：2026-08-04 ｜ 代码基线：`git log` 最新提交 `36381a2`（安全加固收尾）。
 > 配套文档：`docs/CODE_EVALUATION.md`（全量评估）、`docs/CODE_REVIEW.md`（第二轮复审）、`docs/sdk.md`（上报协议）、`docs/frontend-architecture.md`（前端架构）、`README.md`。
+>
+> **⚠ 架构更新（2026-08-30，第三/四轮评审修复后）：**
+> 1. **数据访问分层**：handlers 不再直写 SQL，全部经 `repository/` 包（15 个领域文件，SQL 原样收敛）；handlers 只保留「解析请求 → 调 repository → 映射响应」。
+> 2. **认证**：`/auth/refresh` 为轮换式刷新令牌（`refresh_tokens` 表，SHA-256 哈希入库、旧令牌用后即废），新增 `/auth/logout` 撤销；WebSocket `/ws`、`/proxy-ws` 移出 JWT 组，改为升级后**首消息认证**（首帧 `{"type":"auth","token"}`），query token 已废除。
+> 3. **脚本执行**：`EXECUTOR_ENABLED` 默认**关闭**；`EXECUTOR_SANDBOX=host|docker` 控制隔离方式（docker 模式容器隔离 + 资源限制，Docker 不可用即任务失败，不回退宿主机）。
+> 4. **前端测试**：`npm test`（vitest + happy-dom，13 用例）。详见 `docs/CODE_REVIEW.md` 第三/四轮记录。
 
 ---
 
@@ -28,7 +34,7 @@
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Go 1.24（go.mod 声明；本机 `go` 为 1.26，可正常编译）、gin 1.9、SQLite（`modernc.org/sqlite` 纯 Go 实现、WAL 模式、**无需 CGO**）、golang-jwt v5、gorilla/websocket、protobuf（jhump/protoreflect + google.golang.org/protobuf） |
+| 后端 | Go 1.24（go.mod 声明；本机 `go` 为 1.26，可正常编译）、gin 1.12、SQLite（`modernc.org/sqlite` 纯 Go 实现、WAL 模式、**无需 CGO**）、golang-jwt v5、gorilla/websocket、protobuf（jhump/protoreflect + google.golang.org/protobuf） |
 | 前端 | Vue 3.5、Vite 5、Pinia、Vue Router 4、Element Plus、Tailwind CSS 3、ECharts、axios、TypeScript |
 | 数据 | 单文件 SQLite（`qatest.db` + `-wal` / `-shm`），零外部依赖 |
 | 构建 | 前端 `vite build` → 产物输出到 `../static`；后端 `go build -o qatest-server`；Docker 多阶段构建（`Dockerfile`） |
@@ -102,11 +108,11 @@ Qatest-go/
 - 全局中间件：`Logger → CORS → RateLimit → SSRFCheck`。
 - 公开组（`api`，无需 JWT）：`POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/qa/report`（靠 `report_token` 鉴权，见 5.6）。
 - 认证组（`auth.Use(middleware.Auth())`）：设备、脚本、执行、缺陷、用例（cases/table/xmind）、测试用例模块、计划、API 定义/请求/文件夹/历史、代理控制、Proto、设置、迁移、日志、SDK 下载、Jira 状态、SDK 上报查询、表格/XMind 视图。
-- WebSocket：`GET /api/ws`（执行日志）、`GET /api/proxy-ws`（协议录制）—— 均置于认证组，**受 JWT 保护**。
+- WebSocket：`GET /api/ws`（执行日志）、`GET /api/proxy-ws`（协议录制）—— 位于限流组（不在 JWT 组），升级后**首消息认证**（首帧 `{"type":"auth","token"}`，见 `handlers/websocket.go` 的 `authenticateWS`）。
 - 静态：`/assets`、favicon、`NoRoute` → `./static/index.html`（SPA fallback）。
 
 ### 4.7 `handlers` 包
-按资源拆分（每个文件一组 CRUD + 相关接口），共约 20 个文件：
+按资源拆分（每个文件一组接口），共约 20 个文件；**SQL 一律写在 `repository/`，本包不含数据访问**：
 
 | 文件 | 负责资源 / 接口 |
 |---|---|
@@ -130,13 +136,13 @@ Qatest-go/
 **约定（修复时务必沿用）：**
 - 错误统一走 `respondError(c, status, err, friendlyMsg)`，不要把 `err.Error()` 直出（P0-3 已修，勿回退）。
 - 所有 DB 查询用 `?` 占位符；新增表/列仅在 `migrations.go` 用硬编码常量拼接。
-- ID 生成用 `generateID(prefix)`（crypto/rand + 纳秒时间戳）或 `services.GenerateSecureID` / `generateSecureToken`。
+- ID 生成用 `generateID(prefix)`（= `repository.NewID`，crypto/rand + 纳秒时间戳）；随机令牌用 `repository.NewSecureToken(n)`；`services.GenerateSecureID` 仍可用于 SDK 相关场景。
 
 ### 4.8 `services` 包（单例管理服务）
 | 文件 | 单例 | 职责 / 风险点 |
 |---|---|---|
 | `proxy_server.go` | `ProxyInstance` | **gRPC 拦截代理**（h2c，默认 `127.0.0.1:18924`）。状态机：`waiting-request → forwarded/waiting-response → done/dropped/error`。WebSocket `HandleProxyWsMessage` 驱动决策。转发经 SSRF 校验客户端（`getSharedForwardClient` 5min 缓存 + pin IP）。JSONL 日志异步写盘（channel + goroutine，`stopLogWriter` 用 `WaitGroup` 刷盘）。 |
-| `executor.go` | `Executor` | **脚本执行引擎（RCE 高危）**：`Start` → `execute` → `executeShell/Python/JS`。日志经 `LogChan → consumeLogs → broadcastLog` 推前端 WS。`SetLogBroadcastFunc` 注入广播回调（**避免 services→handlers 循环依赖**）。进程树终止（Windows `taskkill /T /F`）。 |
+| `executor.go` + `sandbox.go` | `Executor` | **脚本执行引擎（RCE 高危，`EXECUTOR_ENABLED` 默认关闭）**：`Start` → `execute` → `executeShell/Python/JS`；python/js 走 `sandboxCommand`（`EXECUTOR_SANDBOX=docker` 时容器隔离 + 资源限制，fail-safe 不回退宿主机）。日志经 `LogChan → consumeLogs → broadcastLog` 推前端 WS。取消路径 kill 进程树 + `docker rm -f`。 |
 | `adb.go` | `ADB` | ADB 设备管理：`Scan / GetDevices / TakeScreenshot / ExecCommand / InstallAPK`。`ExecCommand` 经 `ValidateShellCommand` 白名单校验（无 shell 传参）。 |
 | `proto_loader.go` | `ProtoLoader` | Proto 文件加载：`protoparse` 描述符优先 + 正则 fallback。自研 **protobuf wire format 编解码**（`decode/encodeWireFormat`，处理 varint/fixed/length-delimited）。enum/嵌套 message 解析历史上有 bug（见注释「修复」），改动需谨慎。 |
 | `security.go` | — | `ValidateShellCommand`：23 条白名单命令 + 13 条危险模式黑名单（命令链、重定向、`rm -rf`、`curl/wget/nc` 等）。`GenerateSecureID`。 |
@@ -147,7 +153,8 @@ Qatest-go/
 
 ### 5.1 认证 / 鉴权
 - JWT 用 HS256，密钥来自 `JWT_SECRET`，缺失/默认则**拒绝启动**。
-- 登录：`handlers/auth.go` 比对 `config.AppConfig.Users`（来自 `QATEST_USERS` 环境变量或默认 admin）。
+- 登录：`handlers/auth.go` 比对 `config.AppConfig.Users`（来自 `QATEST_USERS` 环境变量或默认 admin），同时签发**刷新令牌**（`repository.IssueRefreshToken`，仅存 SHA-256 哈希）。
+- 刷新/登出：`/auth/refresh` 轮换式（旧令牌用后即废、重放被拒）；`/auth/logout` 撤销。
 - 上报接口 `POST /api/qa/report` **不走 JWT 组**，靠 `Authorization: Bearer <reportToken>` 令牌（服务端 `settings.report_token`，`ensureReportToken` 首次自动生成，常量时间比较）。
 
 ### 5.2 SSRF 防护（三层，不要拆掉任何一层）
