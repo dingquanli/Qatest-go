@@ -1,0 +1,1 @@
+import{a}from"./utils-Dkx6roOA.js";import{d as o,O as t,c,P as n,e as d,Q as l,l as m,o as p}from"./index-C6R0vIee.js";const g=o({__name:"Card",setup(u){const s=t(),e=m(()=>a("rounded-2xl border bg-card text-card-foreground shadow-sm",s.class||""));return(r,_)=>(p(),c("div",n({class:e.value},{...d(s),class:void 0}),[l(r.$slots,"default")],16))}});export{g as _};
