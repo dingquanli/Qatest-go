@@ -5,51 +5,8 @@ import (
 	"qatest/models"
 )
 
-// —— 表格视图用例（SQL 迁自 handlers/table_xmind.go，语句原样保留） ——
-
-// ListTableCases 表格用例列表
-func ListTableCases() ([]models.TableCase, error) {
-	rows, err := database.DB.Query(
-		"SELECT id, name, module_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at FROM table_cases ORDER BY sort_order LIMIT 500",
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	cases := make([]models.TableCase, 0)
-	for rows.Next() {
-		var e models.TableCase
-		if err := rows.Scan(&e.ID, &e.Name, &e.ModuleID, &e.Priority, &e.Type, &e.Precondition, &e.Steps, &e.Expected, &e.Assignee, &e.Status, &e.Tags, &e.SortOrder, &e.CreatedAt, &e.UpdatedAt); err != nil {
-			return nil, err
-		}
-		cases = append(cases, e)
-	}
-	return cases, rows.Err()
-}
-
-// CreateTableCase 插入表格用例（ID/时间戳由调用方填充）
-func CreateTableCase(e models.TableCase) error {
-	_, err := database.DB.Exec(
-		"INSERT INTO table_cases (id, name, module_id, priority, type, precondition, steps, expected, assignee, status, tags, sort_order, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-		e.ID, e.Name, e.ModuleID, e.Priority, e.Type, e.Precondition, e.Steps, e.Expected, e.Assignee, e.Status, e.Tags, e.SortOrder, e.CreatedAt, e.UpdatedAt,
-	)
-	return err
-}
-
-// UpdateTableCase 更新表格用例
-func UpdateTableCase(id string, e models.TableCase) error {
-	_, err := database.DB.Exec(
-		"UPDATE table_cases SET name=?, module_id=?, priority=?, type=?, precondition=?, steps=?, expected=?, assignee=?, status=?, tags=?, sort_order=?, updated_at=? WHERE id=?",
-		e.Name, e.ModuleID, e.Priority, e.Type, e.Precondition, e.Steps, e.Expected, e.Assignee, e.Status, e.Tags, e.SortOrder, e.UpdatedAt, id,
-	)
-	return err
-}
-
-// DeleteTableCase 删除表格用例
-func DeleteTableCase(id string) error {
-	_, err := database.DB.Exec("DELETE FROM table_cases WHERE id = ?", id)
-	return err
-}
+// 注：旧「表格视图用例」table_cases 的 CRUD 已随 API 一并移除（前端无调用）；
+// 数据库表保留。如需恢复，SQL 可参考 git 历史。
 
 // —— XMind 视图用例（SQL 迁自 handlers/table_xmind.go，语句原样保留） ——
 

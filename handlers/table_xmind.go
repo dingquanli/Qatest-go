@@ -9,82 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// --- 表格视图用例 ---
-
-func GetTableCases(c *gin.Context) {
-	cases, err := repository.ListTableCases()
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-		return
-	}
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: cases})
-}
-
-func CreateTableCase(c *gin.Context) {
-	var e models.TableCase
-	if err := c.ShouldBindJSON(&e); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误"})
-		return
-	}
-	e.ID = generateID("ec")
-	e.CreatedAt = models.NowStr()
-	e.UpdatedAt = e.CreatedAt
-	if e.Priority == "" {
-		e.Priority = "P2"
-	}
-	if e.Type == "" {
-		e.Type = "functional"
-	}
-	if e.Status == "" {
-		e.Status = "draft"
-	}
-	if err := repository.CreateTableCase(e); err != nil {
-		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-		return
-	}
-	c.JSON(http.StatusCreated, models.APIResponse{Success: true, Data: e})
-}
-
-func UpdateTableCase(c *gin.Context) {
-	id := c.Param("id")
-	var e models.TableCase
-	if err := c.ShouldBindJSON(&e); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "参数错误"})
-		return
-	}
-	e.UpdatedAt = models.NowStr()
-	if e.Priority == "" {
-		e.Priority = "P2"
-	}
-	if e.Type == "" {
-		e.Type = "functional"
-	}
-	if e.Status == "" {
-		e.Status = "draft"
-	}
-	if err := repository.UpdateTableCase(id, e); err != nil {
-		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-		return
-	}
-	e.ID = id
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: e})
-}
-
-func DeleteTableCase(c *gin.Context) {
-	id := c.Param("id")
-	if err := repository.DeleteTableCase(id); err != nil {
-		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-		return
-	}
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: nil})
-}
-
-// --- 表格视图模块（SQL 收敛于 repository/modules.go） ---
-
-func GetTableModules(c *gin.Context)  { listModules(c, tblTableModules) }
-func CreateTableModule(c *gin.Context) { createModule(c, tblTableModules, "em") }
-func UpdateTableModule(c *gin.Context) { updateModule(c, tblTableModules) }
-func DeleteTableModule(c *gin.Context) { deleteModule(c, tblTableModules) }
+// 注：旧「表格视图用例」/table-cases、/table-modules 已随 WPS 风格重构
+// （表格用例视图改为操作电子表格）于 2026-08-30 移除；数据库表 table_cases /
+// table_modules 保留（存量数据不丢）。如需恢复接口，SQL 可参考 git 历史。
 
 // --- XMind 视图用例 ---
 

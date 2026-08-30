@@ -169,16 +169,9 @@ func RegisterRoutes(r *gin.Engine) {
 	// SDK 上报查询（供「SDK 上报」查看页）
 	auth.GET("/qa/reports", handlers.GetQaReports)
 
-	// 表格视图
-	auth.GET("/table-cases", handlers.GetTableCases)
-	auth.POST("/table-cases", handlers.CreateTableCase)
-	auth.PUT("/table-cases/:id", handlers.UpdateTableCase)
-	auth.DELETE("/table-cases/:id", handlers.DeleteTableCase)
-
-	auth.GET("/table-modules", handlers.GetTableModules)
-	auth.POST("/table-modules", handlers.CreateTableModule)
-	auth.PUT("/table-modules/:id", handlers.UpdateTableModule)
-	auth.DELETE("/table-modules/:id", handlers.DeleteTableModule)
+	// 注：旧「表格视图」/table-cases、/table-modules 已移除（前端表格用例视图
+	// 在 WPS 风格重构后改操作 /spreadsheets）；数据库表 table_cases 保留。
+	// 表格用例数据现通过 /spreadsheets 系列接口访问。
 
 	// XMind 视图
 	auth.GET("/xmind-cases", handlers.GetXmindCases)

@@ -62,23 +62,8 @@ type APIHistory struct {
 	CreatedAt  string `json:"createdAt"`
 }
 
-// TableCase 表格视图用例
-type TableCase struct {
-	ID           string `json:"id"`
-	ModuleID     string `json:"moduleId"`
-	Name         string `json:"name"`
-	Priority     string `json:"priority"`
-	Type         string `json:"type"`
-	Precondition string `json:"precondition"`
-	Steps        string `json:"steps"`
-	Expected     string `json:"expected"`
-	Assignee     string `json:"assignee"`
-	Status       string `json:"status"`
-	Tags         string `json:"tags"` // JSON
-	SortOrder    int    `json:"sortOrder"`
-	CreatedAt    string `json:"createdAt"`
-	UpdatedAt    string `json:"updatedAt"`
-}
+// 注：旧「表格视图用例」TableCase 已随 /table-cases API 移除（前端改用电子表格）；
+// 数据库表 table_cases 保留（存量数据不丢）。
 
 // XmindCase XMind 视图用例（纯文本逻辑图节点）
 type XmindCase struct {

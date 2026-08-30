@@ -119,7 +119,7 @@ Qatest-go/
 | `auth.go` | 登录 / 刷新令牌 |
 | `testcases.go` | 测试用例 + 模块 + 执行记录 + 批量导入 |
 | `testplans.go` | 测试计划 + **执行引擎**（`ExecuteTestPlan`，聚合用例执行结果） |
-| `table_xmind.go` | 表格视图 / 思维导图视图用例与模块 |
+| `table_xmind.go` | 思维导图视图用例与模块（旧表格视图 API 已移除：前端表格用例视图改操作电子表格 `/spreadsheets`；`table_cases`/`table_modules` 数据库表保留） |
 | `bugs.go` | 缺陷 CRUD + Jira 同步 |
 | `scripts.go` / `executions.go` | 脚本 CRUD / 执行记录 + 取消 |
 | `devices.go` | 设备扫描 / 截图 / 执行命令 / 安装 APK（含 ApkDir 路径约束） |

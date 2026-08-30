@@ -10,7 +10,7 @@ import (
 )
 
 // 模块/文件夹 CRUD 公共实现。
-// 五张模块表（case_modules / api_def_modules / api_folders / table_modules / xmind_modules）
+// 四张模块表（case_modules / api_def_modules / api_folders / xmind_modules）
 // 结构同构（id/name/parent_id/sort_order/created_at）；SQL 已整体迁至 repository/modules.go
 // （ListModuleRows / InsertModuleRow / UpdateModuleRow / DeleteModuleRow），
 // 本文件只保留表名常量与「请求解析 → 调用 repository → 响应/错误映射」的薄封装，
@@ -21,8 +21,9 @@ const (
 	tblCaseModules   = "case_modules"
 	tblAPIDefModules = "api_def_modules"
 	tblAPIFolders    = "api_folders"
-	tblTableModules  = "table_modules"
 	tblXmindModules  = "xmind_modules"
+	// 注：tblTableModules 已随 /table-modules API 移除（前端改用电子表格）；
+	// 数据库表 table_modules 保留。
 )
 
 // listModules GET /xxx-modules：按 sort_order 返回全量模块

@@ -7,7 +7,8 @@ import (
 
 // —— 模块/文件夹 CRUD（SQL 迁自 handlers/module_crud.go，语句原样保留） ——
 //
-// 五张模块表（case_modules / api_def_modules / api_folders / table_modules / xmind_modules）
+// 四张模块表（case_modules / api_def_modules / api_folders / xmind_modules；
+// table_modules 已随 /table-modules API 移除，表保留）
 // 结构同构（id/name/parent_id/sort_order/created_at），共用以下函数。
 // table 参数由 handlers 以包内固定常量传入（编译期固定，非用户输入），杜绝拼接注入。
 
