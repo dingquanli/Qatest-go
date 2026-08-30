@@ -7,6 +7,7 @@ package services
 // 服务仅限对受信任用户开放，强烈建议在隔离环境 / 容器中运行，并配合资源、网络、权限限制。
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -24,10 +25,22 @@ import (
 	"qatest/database"
 )
 
-// init 在进程启动时打印一次高危能力警告。
+// init 在进程启动时按开关状态打印提示：开启时警告宿主机 RCE 风险，关闭时说明已熔断。
+// 注意：包 init 时 config 可能尚未加载（如单元测试），需容忍 nil。
 func init() {
-	log.Println("[WARN] 脚本执行功能会在宿主机直接运行用户提交的代码，属高危能力；请确保服务仅对受信任用户开放，并尽量在隔离环境/容器中运行")
-	log.Println("[执行器] 脚本执行引擎就绪")
+	if config.AppConfig == nil {
+		return
+	}
+	if !config.AppConfig.ExecutorEnabled {
+		log.Println("[执行器] 脚本执行引擎已禁用（EXECUTOR_ENABLED 未开启）；如需执行脚本请在 .env 中显式设置 EXECUTOR_ENABLED=1")
+		return
+	}
+	log.Println("[WARN] 脚本执行功能属高危能力；请确保服务仅对受信任用户开放")
+	if config.AppConfig.ExecutorSandbox == "docker" {
+		log.Println("[执行器] 脚本执行引擎就绪（沙箱模式: docker，容器隔离 + 资源限制）")
+	} else {
+		log.Println("[执行器] 脚本执行引擎就绪（沙箱模式: host，宿主机直跑——强烈建议在隔离环境/容器中运行，或设置 EXECUTOR_SANDBOX=docker）")
+	}
 }
 
 // 执行状态
@@ -160,6 +173,8 @@ func (em *ExecutorManager) Cancel(id string) error {
 	if pid > 0 {
 		killProcessTree(pid)
 	}
+	// 沙箱模式下按容器名强制清理（杀掉 docker 客户端进程不会停止容器）
+	stopSandboxContainer(id)
 
 	// 更新数据库状态
 	_, err := database.DB.Exec(
@@ -191,6 +206,15 @@ func killProcessTree(pid int) {
 
 // execute 执行脚本
 func (em *ExecutorManager) execute(task *ExecutionTask) {
+	// 纵深防御：即使调用方（handler）漏检开关，执行层也拒绝运行任何用户提交的代码
+	if config.AppConfig == nil || !config.AppConfig.ExecutorEnabled {
+		task.emitLog("ERROR", "脚本执行引擎已禁用（EXECUTOR_ENABLED 未开启），任务拒绝执行")
+		database.DB.Exec(
+			"UPDATE executions SET status = ?, finished_at = ? WHERE id = ?",
+			StatusFailed, time.Now().Format(time.RFC3339), task.ID,
+		)
+		return
+	}
 	// 防止单个任务 panic 拖垮整个进程
 	defer func() {
 		if r := recover(); r != nil {
@@ -225,6 +249,12 @@ func (em *ExecutorManager) execute(task *ExecutionTask) {
 	task.emitLog("INFO", fmt.Sprintf("开始执行脚本: %s", task.TaskName))
 
 	tmpDir := filepath.Join(config.AppConfig.LogDir, "tmp")
+	// 修复存量 bug：LogDir 为相对路径（默认 "logs"）时，tmpFile 也是相对路径，
+	// 而 cmd.Dir=tmpDir 会让 python/node 再基于工作目录拼接一次，得到
+	// "logs/tmp/logs/tmp/xxx.py" 找不到文件。统一先解析为绝对路径。
+	if abs, err := filepath.Abs(tmpDir); err == nil {
+		tmpDir = abs
+	}
 	os.MkdirAll(tmpDir, 0755)
 
 	switch task.Language {
@@ -391,8 +421,9 @@ done:
 }
 
 // executePython 执行 Python 脚本
+// 沙箱模式（EXECUTOR_SANDBOX=docker）下在容器内运行（--network none + 资源限制），
+// 否则在宿主机直接执行（高危）。
 func (em *ExecutorManager) executePython(task *ExecutionTask, tmpDir string) {
-	// 高危：在宿主机直接执行用户提交的代码。
 	ctx, cancel := context.WithTimeout(task.Ctx, 300*time.Second)
 	defer cancel()
 
@@ -406,8 +437,27 @@ func (em *ExecutorManager) executePython(task *ExecutionTask, tmpDir string) {
 		return
 	}
 
-	cmd := exec.CommandContext(ctx, "python", tmpFile)
+	// 宿主机模式：python <host路径>；docker 模式：python /task/<文件名>（无网络）
+	cmd, err := sandboxCommand(ctx, task.ID, true, config.AppConfig.PythonImage,
+		[]string{"python", tmpFile},
+		[]string{"python", "/task/" + filepath.Base(tmpFile)},
+	)
+	if err != nil {
+		os.Remove(tmpFile)
+		task.emitLog("ERROR", err.Error())
+		database.DB.Exec(
+			"UPDATE executions SET status = ?, finished_at = ? WHERE id = ?",
+			StatusFailed, time.Now().Format(time.RFC3339), task.ID,
+		)
+		return
+	}
 	cmd.Dir = tmpDir
+
+	// 修复存量 bug：此前先 Start() 抓 PID 再 CombinedOutput()（内部会二次 Start），
+	// 必然报 "exec: already started" 导致 python/js 任务永远 failed。
+	// 正确姿势：设置输出缓冲 → Start → Wait。
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
 
 	// 捕获 PID
 	if err := cmd.Start(); err != nil {
@@ -426,7 +476,9 @@ func (em *ExecutorManager) executePython(task *ExecutionTask, tmpDir string) {
 		task.mu.Unlock()
 	}
 
-	output, err := cmd.CombinedOutput()
+	err = cmd.Wait()
+	output := buf.Bytes()
+	stopSandboxContainer(task.ID)
 
 	task.mu.Lock()
 	task.Pid = 0
@@ -462,9 +514,9 @@ func (em *ExecutorManager) executePython(task *ExecutionTask, tmpDir string) {
 }
 
 // executeJS 执行 JavaScript 脚本
-// JS 运行环境预置了 adb() 函数，通过 HTTP 调用后端 /api/devices/:serial/exec 接口执行 ADB 命令
+// JS 运行环境预置了 adb() 函数，通过 HTTP 调用后端 /api/devices/:serial/exec 接口执行 ADB 命令。
+// 沙箱模式下容器通过 host.docker.internal 回连宿主机 API（需保留容器网络）。
 func (em *ExecutorManager) executeJS(task *ExecutionTask, tmpDir string) {
-	// 高危：在宿主机直接执行用户提交的代码。
 	ctx, cancel := context.WithTimeout(task.Ctx, 300*time.Second)
 	defer cancel()
 
@@ -481,11 +533,18 @@ func (em *ExecutorManager) executeJS(task *ExecutionTask, tmpDir string) {
 		log.Printf("[WARN] JS_AUTH_TOKEN 未设置，JS 脚本中的 adb() 调用将返回 401；请在 .env 中配置 JS_AUTH_TOKEN")
 	}
 
+	// 沙箱模式下容器内无法用 localhost 回连宿主机，改用 host.docker.internal
+	apiHost := "localhost"
+	if sandboxActive() {
+		apiHost = sandboxJSHostName
+	}
+
 	// JS preamble: 预置 adb() / log() / sleep() / assert() 函数
 	jsPreamble := fmt.Sprintf(`
 // Qatest JS 运行环境
 const DEVICE_SERIAL = %q;
 const PORT = %q;
+const API_HOST = %q; // 沙箱模式下为 host.docker.internal
 const TOKEN = %q; // 从环境变量 JS_AUTH_TOKEN 获取
 
 const log = (msg) => console.log('[LOG]', msg);
@@ -494,7 +553,7 @@ const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'Assertion fai
 
 // ADB 函数：通过 HTTP 调用后端 /api/devices/:serial/exec 接口来执行 ADB 命令
 const adb = async (cmd) => {
-    const r = await fetch('http://localhost:' + PORT + '/api/devices/' + DEVICE_SERIAL + '/exec', {
+    const r = await fetch('http://' + API_HOST + ':' + PORT + '/api/devices/' + DEVICE_SERIAL + '/exec', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
         body: JSON.stringify({ command: cmd })
@@ -505,7 +564,7 @@ const adb = async (cmd) => {
 };
 
 (async () => {
-`, deviceSerial, port, jsToken) + task.Code + `
+`, deviceSerial, port, apiHost, jsToken) + task.Code + `
 })().catch(err => { console.error('[ERROR]', err.message); process.exit(1); });
 `
 
@@ -519,8 +578,25 @@ const adb = async (cmd) => {
 		return
 	}
 
-	cmd := exec.CommandContext(ctx, "node", tmpFile)
+	// 宿主机模式：node <host路径>；docker 模式：node /task/<文件名>（保留网络以回连宿主机 API）
+	cmd, err := sandboxCommand(ctx, task.ID, false, config.AppConfig.NodeImage,
+		[]string{"node", tmpFile},
+		[]string{"node", "/task/" + filepath.Base(tmpFile)},
+	)
+	if err != nil {
+		os.Remove(tmpFile)
+		task.emitLog("ERROR", err.Error())
+		database.DB.Exec(
+			"UPDATE executions SET status = ?, finished_at = ? WHERE id = ?",
+			StatusFailed, time.Now().Format(time.RFC3339), task.ID,
+		)
+		return
+	}
 	cmd.Dir = tmpDir
+
+	// 同 executePython：Start + Wait（此前 Start 后接 CombinedOutput 必然 already started）
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
 
 	// 捕获 PID
 	if err := cmd.Start(); err != nil {
@@ -539,7 +615,9 @@ const adb = async (cmd) => {
 		task.mu.Unlock()
 	}
 
-	output, err := cmd.CombinedOutput()
+	err = cmd.Wait()
+	output := buf.Bytes()
+	stopSandboxContainer(task.ID)
 
 	task.mu.Lock()
 	task.Pid = 0

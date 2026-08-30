@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"qatest/config"
-	"qatest/database"
 	"qatest/models"
+	"qatest/repository"
 	"qatest/services"
 
 	"github.com/gin-gonic/gin"
@@ -15,31 +15,8 @@ import (
 
 // GetExecutions 执行记录列表
 func GetExecutions(c *gin.Context) {
-	rows, err := database.DB.Query(
-		`SELECT id, script_id, device_serial, task_name, status, logs, screenshots, duration, started_at, finished_at, created_at
-		 FROM executions ORDER BY started_at DESC LIMIT 100`,
-	)
+	executions, err := repository.ListExecutions()
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-		return
-	}
-	defer rows.Close()
-
-	executions := make([]models.Execution, 0)
-	for rows.Next() {
-		var e models.Execution
-		// SELECT 列与 Scan 目标数量必须一致：id, script_id, device_serial, task_name,
-		// status, logs, screenshots, duration, started_at, finished_at, created_at
-		if err := rows.Scan(
-			&e.ID, &e.ScriptID, &e.DeviceSerial, &e.TaskName, &e.Status, &e.Logs,
-			&e.Screenshots, &e.Duration, &e.StartedAt, &e.FinishedAt, &e.CreatedAt,
-		); err != nil {
-			respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
-			return
-		}
-		executions = append(executions, e)
-	}
-	if err := rows.Err(); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -49,14 +26,7 @@ func GetExecutions(c *gin.Context) {
 
 // GetExecution 单条执行记录
 func GetExecution(c *gin.Context) {
-	id := c.Param("id")
-	var e models.Execution
-	err := database.DB.QueryRow(
-		`SELECT id, script_id, device_serial, task_name, status, logs, screenshots, duration, started_at, finished_at, created_at
-		 FROM executions WHERE id = ?`, id,
-	).Scan(&e.ID, &e.ScriptID, &e.DeviceSerial, &e.TaskName, &e.Status, &e.Logs,
-		&e.Screenshots, &e.Duration, &e.StartedAt, &e.FinishedAt, &e.CreatedAt)
-
+	e, err := repository.GetExecution(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: "执行记录不存在"})
 		return
@@ -67,9 +37,9 @@ func GetExecution(c *gin.Context) {
 
 // CreateExecution 创建并执行脚本
 func CreateExecution(c *gin.Context) {
-	// RCE 高危能力熔断：EXECUTOR_ENABLED=0 时拒绝创建任何脚本执行任务
+	// RCE 高危能力熔断：EXECUTOR_ENABLED 未显式开启时拒绝创建任何脚本执行任务（默认关闭）
 	if !config.AppConfig.ExecutorEnabled {
-		c.JSON(http.StatusForbidden, models.APIResponse{Success: false, Error: "脚本执行引擎已禁用（EXECUTOR_ENABLED=0），请管理员在服务端配置中开启"})
+		c.JSON(http.StatusForbidden, models.APIResponse{Success: false, Error: "脚本执行引擎已禁用（默认关闭）。如确需执行脚本，请管理员在 .env 中显式设置 EXECUTOR_ENABLED=1 并重启服务"})
 		return
 	}
 
@@ -80,10 +50,7 @@ func CreateExecution(c *gin.Context) {
 	}
 
 	// 查询脚本
-	var script models.Script
-	err := database.DB.QueryRow(
-		"SELECT id, name, description, language, code FROM scripts WHERE id = ?", req.ScriptID,
-	).Scan(&script.ID, &script.Name, &script.Description, &script.Language, &script.Code)
+	script, err := repository.GetScriptBasic(req.ScriptID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: "脚本不存在"})
 		return
@@ -104,13 +71,7 @@ func CreateExecution(c *gin.Context) {
 		CreatedAt:    now,
 	}
 
-	_, err = database.DB.Exec(
-		`INSERT INTO executions (id, script_id, device_serial, task_name, status, logs, screenshots, duration, started_at, finished_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		exec.ID, exec.ScriptID, exec.DeviceSerial, exec.TaskName, exec.Status, exec.Logs,
-		exec.Screenshots, exec.Duration, exec.StartedAt, exec.FinishedAt, exec.CreatedAt,
-	)
-	if err != nil {
+	if err := repository.CreateExecution(exec); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}
@@ -137,14 +98,13 @@ func CreateExecution(c *gin.Context) {
 func CancelExecution(c *gin.Context) {
 	id := c.Param("id")
 
-	var exec models.Execution
-	err := database.DB.QueryRow("SELECT id, status FROM executions WHERE id = ?", id).Scan(&exec.ID, &exec.Status)
+	status, err := repository.GetExecutionStatus(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{Success: false, Error: "执行记录不存在"})
 		return
 	}
 
-	if exec.Status != "running" {
+	if status != "running" {
 		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Error: "任务未在运行中"})
 		return
 	}
@@ -152,7 +112,7 @@ func CancelExecution(c *gin.Context) {
 	services.Executor.Cancel(id)
 
 	now := time.Now().Format(time.RFC3339)
-	if _, err := database.DB.Exec("UPDATE executions SET status='cancelled', finished_at=? WHERE id=?", now, id); err != nil {
+	if err := repository.CancelExecution(id, now); err != nil {
 		respondError(c, http.StatusInternalServerError, err, "服务器内部错误,请稍后重试")
 		return
 	}

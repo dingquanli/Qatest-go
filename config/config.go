@@ -74,9 +74,17 @@ type Config struct {
 	LogDir         string
 	ApkDir         string
 	Users          []UserConfig
-	// ExecutorEnabled 脚本执行引擎总开关（默认开启，与历史行为一致）。
-	// 设为 false 时拒绝创建任何脚本执行任务（RCE 高危能力的部署侧熔断开关）。
+	// ExecutorEnabled 脚本执行引擎总开关。
+	// RCE 高危能力熔断开关：默认【关闭】——脚本会在宿主机直接运行用户提交的代码，
+	// 必须显式设置 EXECUTOR_ENABLED=1 才开启（fail-safe：不做选择即最安全）。
 	ExecutorEnabled bool
+	// ExecutorSandbox 脚本执行隔离方式："host"（默认，宿主机直跑，仅限受信任环境）
+	// 或 "docker"（容器隔离 + 资源限制；Docker 不可用时任务直接失败，不回退宿主机）。
+	// shell（adb）模式始终在宿主机执行（依赖宿主机 USB 设备连接，无法容器化）。
+	ExecutorSandbox string
+	// PythonImage / NodeImage docker 沙箱使用的镜像（可用环境变量覆盖）
+	PythonImage string
+	NodeImage   string
 	// Jira 同步配置（环境变量为源，系统设置表可覆盖）
 	JiraBaseURL  string
 	JiraEmail     string
@@ -135,10 +143,20 @@ func Load() *Config {
 		}
 	}
 
-	// RCE 高危能力熔断开关：默认开启（保持历史行为）；"0"/"false"/"off" 关闭
-	cfg.ExecutorEnabled = !strings.EqualFold(getEnv("EXECUTOR_ENABLED", "1"), "0") &&
-		!strings.EqualFold(getEnv("EXECUTOR_ENABLED", "1"), "false") &&
-		!strings.EqualFold(getEnv("EXECUTOR_ENABLED", "1"), "off")
+	// RCE 高危能力熔断开关：默认关闭（fail-safe），仅 "1"/"true"/"on" 显式开启。
+	// 脚本执行会在宿主机直接运行用户提交的代码，需要时必须显式声明 EXECUTOR_ENABLED=1。
+	executorRaw := strings.ToLower(strings.TrimSpace(getEnv("EXECUTOR_ENABLED", "0")))
+	cfg.ExecutorEnabled = executorRaw == "1" || executorRaw == "true" || executorRaw == "on"
+
+	// 脚本执行隔离方式：host（默认，宿主机直跑）或 docker（容器隔离）。
+	// 非法值一律按 host 处理并在日志提示。
+	cfg.ExecutorSandbox = strings.ToLower(strings.TrimSpace(getEnv("EXECUTOR_SANDBOX", "host")))
+	if cfg.ExecutorSandbox != "host" && cfg.ExecutorSandbox != "docker" {
+		log.Printf("WARN: EXECUTOR_SANDBOX=%q 非法（可选 host/docker），已按 host 处理", cfg.ExecutorSandbox)
+		cfg.ExecutorSandbox = "host"
+	}
+	cfg.PythonImage = getEnv("EXECUTOR_PYTHON_IMAGE", "python:3.11-slim")
+	cfg.NodeImage = getEnv("EXECUTOR_NODE_IMAGE", "node:20-alpine")
 
 	if usersJSON := os.Getenv("QATEST_USERS"); usersJSON != "" {
 		var users []UserConfig
